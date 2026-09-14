@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.db_utils import scan_all
+from src.db_utils import scan_all, safe_float
 from src.aws_clients import get_table
 
 load_dotenv()
@@ -105,7 +105,7 @@ def cost_trend():
             grouped[service] = []
         grouped[service].append({
             "timestamp": item.get("timestamp", ""),
-            "cost_usd": float(item.get("cost_usd", 0))
+            "cost_usd": safe_float(item.get("cost_usd"), 0.0)
         })
 
     for service in grouped:
@@ -138,7 +138,7 @@ def anomalies():
             "timestamp":    item.get("timestamp", ""),
             "anomaly_type": item.get("anomaly_type", ""),
             "model":        item.get("model", ""),
-            "confidence":   float(item.get("confidence", 0)),
+            "confidence":   safe_float(item.get("confidence"), 0.0),
             "status":       item.get("status", "pending")
         })
 
@@ -172,7 +172,7 @@ def optimization_log():
             "resource_id":          item.get("resource_id", ""),
             "resource_type":        item.get("resource_type", ""),
             "status":               item.get("status", ""),
-            "estimated_saving_usd": float(item.get("estimated_saving_usd", 0)),
+            "estimated_saving_usd": safe_float(item.get("estimated_saving_usd"), 0.0),
             "rollback_command":     item.get("rollback_command", "")
         })
 
@@ -196,7 +196,7 @@ def savings_summary():
             }), 503
         return jsonify({"error": str(e)}), 500
 
-    total_saving   = sum(float(i.get("estimated_saving_usd", 0)) for i in items)
+    total_saving   = sum(safe_float(i.get("estimated_saving_usd"), 0.0) for i in items)
     actioned_count = sum(1 for i in items if i.get("status") == "actioned")
     skipped_count  = sum(1 for i in items if i.get("status") == "skipped")
     failed_count   = sum(1 for i in items if i.get("status") == "failed")
@@ -205,7 +205,7 @@ def savings_summary():
     by_type = {}
     for item in items:
         rtype  = item.get("resource_type", "Unknown")
-        saving = float(item.get("estimated_saving_usd", 0))
+        saving = safe_float(item.get("estimated_saving_usd"), 0.0)
         by_type[rtype] = round(by_type.get(rtype, 0) + saving, 6)
 
     # Anomaly breakdown

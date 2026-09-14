@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.db_utils import scan_all
+from src.db_utils import scan_all, safe_float
 from src.aws_clients import get_table, REGION
 
 load_dotenv()
@@ -47,7 +47,7 @@ def validate_savings():
         return
 
     # System estimated savings
-    system_estimate = sum(float(i.get("estimated_saving_usd", 0)) for i in items)
+    system_estimate = sum(safe_float(i.get("estimated_saving_usd"), 0.0) for i in items)
     logger.info(f"System estimated savings:  ${system_estimate:.4f}/hr")
     logger.info(f"Projected daily:           ${system_estimate * 24:.4f}/day")
     logger.info(f"Projected monthly:         ${system_estimate * 24 * 30:.2f}/month")
@@ -102,7 +102,7 @@ def validate_savings():
     by_action = {}
     for item in items:
         action = item.get("action_taken", "unknown")
-        saving = float(item.get("estimated_saving_usd", 0))
+        saving = safe_float(item.get("estimated_saving_usd"), 0.0)
         by_action[action] = by_action.get(action, 0) + saving
 
     for action, saving in by_action.items():

@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.db_utils import scan_all
+from src.db_utils import scan_all, safe_float
 from src.aws_clients import get_table
 
 load_dotenv()
@@ -25,7 +25,7 @@ logger = logging.getLogger("anomaly_detector")
 
 TABLE_NAME = os.getenv("DYNAMODB_TABLE", "CostTelemetry")
 ANOMALY_TABLE_NAME = os.getenv("ANOMALY_TABLE", "AnomalyEvents")
-CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.85"))
+CONFIDENCE_THRESHOLD = safe_float(os.getenv("CONFIDENCE_THRESHOLD"), 0.85)
 
 
 def safe_float(val, default=0.0):

@@ -10,7 +10,7 @@ from botocore.exceptions import ClientError
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.db_utils import scan_all
+from src.db_utils import scan_all, safe_float, safe_int
 from src.aws_clients import (
     get_table,
     get_ec2_client,
@@ -27,7 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("optimization_engine")
 
-MAX_ACTIONS_PER_HOUR = int(os.getenv("MAX_ACTIONS_PER_HOUR", "5"))
+MAX_ACTIONS_PER_HOUR = safe_int(os.getenv("MAX_ACTIONS_PER_HOUR"), 5)
 ANOMALY_TABLE_NAME = os.getenv("ANOMALY_TABLE", "AnomalyEvents")
 AUDIT_TABLE_NAME = os.getenv("AUDIT_TABLE", "OptimizationAudit")
 
@@ -306,7 +306,7 @@ def run_engine():
             break
 
         anomaly_type = anomaly.get("anomaly_type", "unknown")
-        confidence = float(anomaly.get("confidence", 0))
+        confidence = safe_float(anomaly.get("confidence"), 0.0)
 
         logger.info(f"Processing: {anomaly_type} (confidence: {confidence})")
         action_name = ACTION_RULES.get(anomaly_type)
@@ -336,7 +336,7 @@ def run_engine():
 
         if result["status"] == "actioned":
             actions_taken += 1
-            saving = float(result.get("estimated_saving_usd", 0))
+            saving = safe_float(result.get("estimated_saving_usd"), 0.0)
             total_saving += saving
             logger.info(f"Audit record written: {action_id}")
             logger.info(f"Estimated saving: ${saving:.4f}/hr")

@@ -26,13 +26,8 @@ jobs:
 
       - name: Execute Pipeline Cycle
         env:
-          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'ap-south-1' }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          DYNAMODB_TABLE: ${{ secrets.DYNAMODB_TABLE || 'CostTelemetry' }}
-          ANOMALY_TABLE: ${{ secrets.ANOMALY_TABLE || 'AnomalyEvents' }}
-          AUDIT_TABLE: ${{ secrets.AUDIT_TABLE || 'OptimizationAudit' }}
-          CONFIDENCE_THRESHOLD: ${{ secrets.CONFIDENCE_THRESHOLD || '0.85' }}
-          MAX_ACTIONS_PER_HOUR: ${{ secrets.MAX_ACTIONS_PER_HOUR || '5' }}
         run: |
           python src/pipeline.py --once
