@@ -3,9 +3,15 @@ import sys
 import pytest
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from moto import mock_aws
 import boto3
 from boto3.dynamodb.conditions import Attr
+
+try:
+    import importlib
+    moto_module = importlib.import_module("moto")
+    mock_aws = getattr(moto_module, "mock_aws", None)
+except (ImportError, AttributeError):
+    mock_aws = None
 
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -49,6 +55,8 @@ def aws_env(monkeypatch):
 @pytest.fixture
 def mock_setup():
     """Initializes mock DynamoDB tables and sample EC2/Lambda resources."""
+    if mock_aws is None:
+        pytest.skip("moto is required for offline tests. Run 'pip install -r requirements-dev.txt'")
     with mock_aws():
         # Setup tables
         setup_tables()
