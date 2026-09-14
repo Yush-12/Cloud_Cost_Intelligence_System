@@ -1,7 +1,9 @@
 import boto3
+from boto3.dynamodb.conditions import Attr
 import os
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
+from db_utils import scan_all
 
 load_dotenv()
 
@@ -14,11 +16,8 @@ def validate_savings():
     print("\n📊 Cost Attribution Validation")
     print("="*50)
 
-    # Pull all actioned audit records
-    response = audit_table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("actioned")
-    )
-    items = response["Items"]
+    # Pull all actioned audit records (paginated)
+    items = scan_all(audit_table, Attr("status").eq("actioned"))
 
     if not items:
         print("  No actioned records found — run optimization_engine.py first")

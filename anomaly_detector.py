@@ -1,13 +1,10 @@
 import boto3
+from boto3.dynamodb.conditions import Attr
 import os
-import pandas as pd
-import numpy as np
+import statistics
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from sklearn.ensemble import IsolationForest
-from prophet import Prophet
-import warnings
-warnings.filterwarnings("ignore")
+from db_utils import scan_all
 
 load_dotenv()
 
@@ -19,181 +16,156 @@ dynamo = boto3.resource('dynamodb', region_name=REGION)
 table = dynamo.Table(TABLE_NAME)
 
 
+def safe_float(val, default=0.0):
+    """Safely cast a value to float, handling None, empty string, and exceptions."""
+    if val is None or val == "":
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 # ─────────────────────────────────────────
 # STEP 1: Fetch Data from DynamoDB
 # ─────────────────────────────────────────
 def fetch_metrics(metric_type="utilization", resource_id=None):
     """Fetch all records of a given metric type from DynamoDB."""
     print(f"  Fetching {metric_type} records from DynamoDB...")
-    
-    filter_expr = boto3.dynamodb.conditions.Attr("metric_type").eq(metric_type)
-    
+    filter_expr = Attr("metric_type").eq(metric_type)
     if resource_id:
-        filter_expr = filter_expr & boto3.dynamodb.conditions.Attr("resource_id").eq(resource_id)
-    
-    response = table.scan(FilterExpression=filter_expr)
-    items = response["Items"]
-    
-    # Handle pagination
-    while "LastEvaluatedKey" in response:
-        response = table.scan(
-            FilterExpression=filter_expr,
-            ExclusiveStartKey=response["LastEvaluatedKey"]
-        )
-        items.extend(response["Items"])
-    
+        filter_expr = filter_expr & Attr("resource_id").eq(resource_id)
+    items = scan_all(table, filter_expr)
     print(f"     ✅ Fetched {len(items)} records")
     return items
 
 
 # ─────────────────────────────────────────
-# STEP 2: Prophet — Seasonal Anomaly Detection
+# STEP 2: Statistical Anomaly Detection (Time-Series)
 # ─────────────────────────────────────────
-def detect_with_prophet(items):
+def detect_time_series_anomalies(items):
     """
-    Detects time-series anomalies using Facebook Prophet.
-    Flags points that fall outside the uncertainty interval.
+    Detects time-series CPU anomalies using moving baseline statistics.
+    Identifies runaway spikes and idle instances with high confidence.
     """
-    print("\n  [MODEL 1] Running Prophet seasonal detection...")
+    print("\n  [DETECTOR 1] Running statistical time-series detection...")
     
-    if len(items) < 10:
-        print("     ⚠️  Not enough data for Prophet (need 10+ points) — skipping")
+    if not items:
+        print("     ⚠️  No utilization data available — skipping")
         return []
 
-    # Build dataframe
-    df = pd.DataFrame([{
-        "ds": pd.to_datetime(item["timestamp"], utc=True).tz_localize(None),
-        "y": float(item.get("cpu_utilization", 0))
-    } for item in items])
+    # Sort items chronologically
+    sorted_items = sorted(items, key=lambda x: x.get("timestamp", ""))
+    cpu_values = [safe_float(item.get("cpu_utilization"), 0.0) for item in sorted_items]
 
-    df = df.sort_values("ds").drop_duplicates("ds").reset_index(drop=True)
-
-    # Train Prophet
-    model = Prophet(
-        interval_width=0.95,        # 95% confidence interval
-        daily_seasonality=True,
-        weekly_seasonality=True
-    )
-    model.fit(df)
-
-    # Predict on same timeframe
-    forecast = model.predict(df[["ds"]])
-
-    # Find anomalies: actual value outside predicted interval
-    df["yhat"] = forecast["yhat"]
-    df["yhat_lower"] = forecast["yhat_lower"]
-    df["yhat_upper"] = forecast["yhat_upper"]
-
-    anomalies = df[
-        (df["y"] < df["yhat_lower"]) | (df["y"] > df["yhat_upper"])
-    ]
+    mean_cpu = statistics.mean(cpu_values)
+    stdev_cpu = statistics.stdev(cpu_values) if len(cpu_values) > 1 else 1.0
 
     results = []
-    for _, row in anomalies.iterrows():
-        deviation = abs(row["y"] - row["yhat"])
-        range_size = max(row["yhat_upper"] - row["yhat_lower"], 0.001)
-        confidence = min(0.99, 0.85 + (deviation / range_size) * 0.1)
+    for item in sorted_items:
+        cpu = safe_float(item.get("cpu_utilization"), 0.0)
+        ts = item.get("timestamp", datetime.now(timezone.utc).isoformat())
 
-        anomaly_type = "idle_instance" if row["y"] < row["yhat_lower"] else "cpu_spike"
+        if cpu >= 80.0 or (stdev_cpu > 0 and (cpu - mean_cpu) / stdev_cpu >= 2.5):
+            excess = max(0.0, cpu - 80.0)
+            confidence = min(0.99, 0.85 + (excess / 20.0) * 0.14)
+            results.append({
+                "timestamp": ts,
+                "model": "statistical_time_series",
+                "anomaly_type": "cpu_spike",
+                "actual_value": round(cpu, 4),
+                "expected_value": round(mean_cpu, 4),
+                "confidence": round(confidence, 4)
+            })
+        elif cpu <= 1.0 or (stdev_cpu > 0 and (mean_cpu - cpu) / stdev_cpu >= 2.5):
+            idle_ratio = max(0.0, 1.0 - min(cpu, 1.0))
+            confidence = min(0.99, 0.85 + idle_ratio * 0.14)
+            results.append({
+                "timestamp": ts,
+                "model": "statistical_time_series",
+                "anomaly_type": "idle_instance",
+                "actual_value": round(cpu, 4),
+                "expected_value": round(mean_cpu, 4),
+                "confidence": round(confidence, 4)
+            })
 
-        results.append({
-            "timestamp": row["ds"].isoformat(),
-            "model": "prophet",
-            "anomaly_type": anomaly_type,
-            "actual_value": round(float(row["y"]), 4),
-            "expected_value": round(float(row["yhat"]), 4),
-            "confidence": round(confidence, 4)
-        })
-
-    print(f"     ✅ Prophet found {len(results)} anomalies")
+    print(f"     ✅ Found {len(results)} time-series anomalies")
     return results
 
 
 # ─────────────────────────────────────────
-# STEP 3: Isolation Forest — Multivariate Detection
+# STEP 3: Multivariate Anomaly Detection
 # ─────────────────────────────────────────
-def detect_with_isolation_forest(utilization_items, billing_items):
+def detect_multivariate_anomalies(utilization_items, billing_items):
     """
-    Detects multivariate anomalies using Isolation Forest.
-    Catches cases where BOTH cost and CPU spike together.
+    Detects multivariate anomalies correlating cost and CPU usage.
+    Catches runaway functions, orphaned volumes, and cost spikes.
     """
-    print("\n  [MODEL 2] Running Isolation Forest multivariate detection...")
+    print("\n  [DETECTOR 2] Running multivariate correlation detection...")
 
-    # Build utilization lookup by timestamp (hourly bucketed)
-    util_lookup = {}
+    # Bucket timestamps to hour strings (YYYY-MM-DDTHH)
+    util_by_hour = {}
     for item in utilization_items:
-        ts = pd.to_datetime(item["timestamp"], utc=True).tz_localize(None).floor("h")
-        util_lookup[ts] = float(item.get("cpu_utilization", 0))
+        ts = item.get("timestamp", "")
+        hour_key = ts[:13] if len(ts) >= 13 else ts
+        util_by_hour.setdefault(hour_key, []).append(safe_float(item.get("cpu_utilization"), 0.0))
 
-    bill_lookup = {}
+    bill_by_hour = {}
     for item in billing_items:
-        ts = pd.to_datetime(item["timestamp"], utc=True).tz_localize(None).floor("6h")
-        bill_lookup[ts] = float(item.get("cost_usd", 0))
+        ts = item.get("timestamp", "")
+        hour_key = ts[:13] if len(ts) >= 13 else ts
+        bill_by_hour.setdefault(hour_key, []).append(safe_float(item.get("cost_usd"), 0.0))
 
-    # Also re-bucket utilization to 6h to match billing frequency
-    util_lookup_6h = {}
-    for ts, cpu in util_lookup.items():
-        bucketed = ts.floor("6h")
-        # Average CPU values within the same 6h bucket
-        if bucketed not in util_lookup_6h:
-            util_lookup_6h[bucketed] = []
-        util_lookup_6h[bucketed].append(cpu)
-    util_lookup = {ts: sum(vals)/len(vals) for ts, vals in util_lookup_6h.items()}
-
-    # Join on common timestamps
-    common_timestamps = set(util_lookup.keys()) & set(bill_lookup.keys())
-
-    if len(common_timestamps) < 5:
-        print("     ⚠️  Not enough overlapping data points — skipping")
+    common_hours = set(util_by_hour.keys()) & set(bill_by_hour.keys())
+    if not common_hours:
+        # If timestamps don't align on exact hour, examine latest billing points directly
+        if billing_items:
+            results = []
+            for b in billing_items:
+                cost = safe_float(b.get("cost_usd"), 0.0)
+                if cost > 1.0:
+                    results.append({
+                        "timestamp": b.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                        "model": "multivariate_rules",
+                        "anomaly_type": "cost_spike",
+                        "cost_value": round(cost, 4),
+                        "confidence": 0.95
+                    })
+            return results
         return []
 
-    rows = []
-    for ts in sorted(common_timestamps):
-        rows.append({
-            "timestamp": ts,
-            "cpu": util_lookup[ts],
-            "cost": bill_lookup[ts]
-        })
-
-    df = pd.DataFrame(rows)
-    features = df[["cpu", "cost"]].values
-
-    # Train Isolation Forest
-    model = IsolationForest(
-        contamination=0.1,   # Expect ~10% anomalies
-        random_state=42
-    )
-    df["anomaly_score"] = model.fit_predict(features)
-    df["raw_score"] = model.score_samples(features)
-
-    # -1 means anomaly in Isolation Forest
-    anomalies = df[df["anomaly_score"] == -1]
-
     results = []
-    for _, row in anomalies.iterrows():
-        # Normalize score to 0-1 confidence
-        confidence = min(0.99, 0.85 + abs(float(row["raw_score"])) * 0.5)
+    for hour_key in sorted(common_hours):
+        avg_cpu = statistics.mean(util_by_hour[hour_key])
+        avg_cost = statistics.mean(bill_by_hour[hour_key])
 
-        # Classify anomaly type
-        if row["cpu"] > 70 and row["cost"] > 0.5:
+        anomaly_type = None
+        confidence = 0.85
+
+        if avg_cpu > 70 and avg_cost > 0.5:
             anomaly_type = "runaway_function"
-        elif row["cpu"] < 2 and row["cost"] > 0.1:
+            confidence = 0.95
+        elif avg_cpu < 2 and avg_cost > 0.1:
             anomaly_type = "orphaned_volume"
-        elif row["cost"] > 1.0:
+            confidence = 0.90
+        elif avg_cost > 1.0:
             anomaly_type = "cost_spike"
-        else:
+            confidence = 0.92
+        elif avg_cpu < 1.0:
             anomaly_type = "idle_instance"
+            confidence = 0.88
 
-        results.append({
-            "timestamp": row["timestamp"].isoformat(),
-            "model": "isolation_forest",
-            "anomaly_type": anomaly_type,
-            "cpu_value": round(float(row["cpu"]), 4),
-            "cost_value": round(float(row["cost"]), 4),
-            "confidence": round(confidence, 4)
-        })
+        if anomaly_type:
+            results.append({
+                "timestamp": f"{hour_key}:00:00Z",
+                "model": "multivariate_rules",
+                "anomaly_type": anomaly_type,
+                "cpu_value": round(avg_cpu, 4),
+                "cost_value": round(avg_cost, 4),
+                "confidence": round(confidence, 4)
+            })
 
-    print(f"     ✅ Isolation Forest found {len(results)} anomalies")
+    print(f"     ✅ Found {len(results)} multivariate anomalies")
     return results
 
 
@@ -201,43 +173,42 @@ def detect_with_isolation_forest(utilization_items, billing_items):
 # STEP 4: Write Anomalies to DynamoDB
 # ─────────────────────────────────────────
 def save_anomalies(anomalies):
-    """Saves detected anomalies to DynamoDB for Phase 4 to consume."""
-    
-    dynamo_client = boto3.resource('dynamodb', region_name=REGION)
-    
-    # Create AnomalyEvents table if it doesn't exist
-    existing = [t.name for t in dynamo_client.tables.all()]
-    
-    if "AnomalyEvents" not in existing:
-        print("\n  Creating AnomalyEvents table...")
-        new_table = dynamo_client.create_table(
-            TableName="AnomalyEvents",
-            KeySchema=[
-                {"AttributeName": "anomaly_id", "KeyType": "HASH"},
-                {"AttributeName": "timestamp", "KeyType": "RANGE"}
-            ],
-            AttributeDefinitions=[
-                {"AttributeName": "anomaly_id", "AttributeType": "S"},
-                {"AttributeName": "timestamp", "AttributeType": "S"}
-            ],
-            BillingMode="PAY_PER_REQUEST"
-        )
-        # Wait until table is fully active before writing
-        print("     ⏳ Waiting for table to become active...")
-        new_table.wait_until_exists()
-        print("     ✅ AnomalyEvents table ready")
-    anomaly_table = dynamo_client.Table("AnomalyEvents")
+    """Saves detected anomalies to DynamoDB for optimization engine to consume."""
+    try:
+        anomaly_table = dynamo.Table("AnomalyEvents")
+        anomaly_table.load()
+    except Exception:
+        existing = [t.name for t in dynamo.tables.all()]
+        if "AnomalyEvents" not in existing:
+            print("\n  Creating AnomalyEvents table...")
+            new_table = dynamo.create_table(
+                TableName="AnomalyEvents",
+                KeySchema=[
+                    {"AttributeName": "anomaly_id", "KeyType": "HASH"},
+                    {"AttributeName": "timestamp", "KeyType": "RANGE"}
+                ],
+                AttributeDefinitions=[
+                    {"AttributeName": "anomaly_id", "AttributeType": "S"},
+                    {"AttributeName": "timestamp", "AttributeType": "S"}
+                ],
+                BillingMode="PAY_PER_REQUEST"
+            )
+            print("     ⏳ Waiting for table to become active...")
+            new_table.wait_until_exists()
+            print("     ✅ AnomalyEvents table ready")
+        anomaly_table = dynamo.Table("AnomalyEvents")
 
     saved = 0
+    now_str = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
     for i, anomaly in enumerate(anomalies):
         if anomaly["confidence"] >= CONFIDENCE_THRESHOLD:
             anomaly_table.put_item(Item={
-                "anomaly_id": f"anomaly-{i}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+                "anomaly_id": f"anomaly-{i}-{now_str}",
                 "timestamp": anomaly["timestamp"],
                 "model": anomaly["model"],
                 "anomaly_type": anomaly["anomaly_type"],
                 "confidence": str(anomaly["confidence"]),
-                "status": "pending",   # Phase 4 will update this
+                "status": "pending",
                 "action_taken": "none"
             })
             saved += 1
@@ -253,21 +224,18 @@ def run_detection():
     print(f"\n🔍 Anomaly detection started at {datetime.now(timezone.utc).isoformat()}")
     print(f"   Confidence threshold: {CONFIDENCE_THRESHOLD}\n")
 
-    # Fetch data
     utilization_items = fetch_metrics("utilization")
     billing_items = fetch_metrics("billing")
 
-    # Run both models
-    prophet_anomalies = detect_with_prophet(utilization_items)
-    iforest_anomalies = detect_with_isolation_forest(utilization_items, billing_items)
+    ts_anomalies = detect_time_series_anomalies(utilization_items)
+    multi_anomalies = detect_multivariate_anomalies(utilization_items, billing_items)
 
-    # Combine results
-    all_anomalies = prophet_anomalies + iforest_anomalies
+    all_anomalies = ts_anomalies + multi_anomalies
 
     print(f"\n📊 Detection Summary:")
-    print(f"   Prophet anomalies:          {len(prophet_anomalies)}")
-    print(f"   Isolation Forest anomalies: {len(iforest_anomalies)}")
-    print(f"   Total:                      {len(all_anomalies)}")
+    print(f"   Time-series anomalies:  {len(ts_anomalies)}")
+    print(f"   Multivariate anomalies: {len(multi_anomalies)}")
+    print(f"   Total:                  {len(all_anomalies)}")
 
     if all_anomalies:
         print(f"\n   High-confidence anomalies (≥{CONFIDENCE_THRESHOLD}):")
@@ -275,10 +243,9 @@ def run_detection():
             if a["confidence"] >= CONFIDENCE_THRESHOLD:
                 print(f"   🚨 [{a['model']}] {a['anomaly_type']} at {a['timestamp']} — confidence: {a['confidence']}")
 
-    # Save to DynamoDB
     save_anomalies(all_anomalies)
-
     print(f"\n✅ Detection run complete\n")
+
 
 if __name__ == "__main__":
     run_detection()

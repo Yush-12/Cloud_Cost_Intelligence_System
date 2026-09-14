@@ -4,14 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AWS Cost Intelligence Dashboard</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Segoe UI', sans-serif;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
       background: #0f1117;
       color: #e2e8f0;
       min-height: 100vh;
@@ -214,13 +211,71 @@
   </style>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel">
 
+  <div class="header">
+    <div>
+      <h1>☁️ AWS Cost Intelligence System</h1>
+      <div style="font-size:12px; color:#4a5568; margin-top:4px;">
+        Telemetry pipeline · Statistical anomaly detection · Autonomous optimization
+      </div>
+    </div>
+    <div class="status">
+      <div class="dot"></div>
+      <span id="liveStatus">Live</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- Panel 1: Cost Trend -->
+    <div class="card">
+      <h2>📈 Cost Trend</h2>
+      <div id="costTrendContainer" class="chart-container">
+        <canvas id="costChart"></canvas>
+      </div>
+      <div class="refresh-note">Refreshes every 60s</div>
+    </div>
+
+    <!-- Panel 2: Anomaly Feed -->
+    <div class="card">
+      <h2>
+        🚨 Anomaly Feed
+        <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+          <span id="pendingBadge" style="color:#fc8181; font-size:12px;"></span>
+          <button id="refreshAnomaliesBtn" style="background:#2d3748; border:none; color:#a0aec0; padding:3px 10px; border-radius:6px; cursor:pointer; font-size:11px;">⟳ Refresh</button>
+        </span>
+      </h2>
+      <div id="lastAnomalyFetch" style="font-size:11px; color:#4a5568; margin-bottom:8px;"></div>
+      <div id="anomalyList" class="anomaly-list">
+        <div class="loading">Loading anomalies...</div>
+      </div>
+      <div class="refresh-note">Refreshes every 60s</div>
+    </div>
+
+    <!-- Panel 3: Optimization Log -->
+    <div class="card">
+      <h2>⚙️ Optimization Log</h2>
+      <div id="logList" class="log-list">
+        <div class="loading">Loading log...</div>
+      </div>
+      <div class="refresh-note">Refreshes every 60s</div>
+    </div>
+
+    <!-- Panel 4: Savings Summary -->
+    <div class="card full-width">
+      <h2>💰 Savings Summary</h2>
+      <div id="savingsSummaryContainer">
+        <div class="loading">Loading summary...</div>
+      </div>
+      <div class="refresh-note">Refreshes every 60s</div>
+    </div>
+  </div>
+
+<script>
 const API = "http://localhost:5000/api";
+let costChartInstance = null;
 
-// ─── Helpers ───────────────────────────────────────────
 function timeAgo(ts) {
+  if (!ts) return "";
   const diff = (Date.now() - new Date(ts)) / 1000;
   if (diff < 60)    return `${Math.floor(diff)}s ago`;
   if (diff < 3600)  return `${Math.floor(diff/60)}m ago`;
@@ -228,322 +283,289 @@ function timeAgo(ts) {
   return `${Math.floor(diff/86400)}d ago`;
 }
 
-function useFetch(url, interval = 60000) {
-  const [data, setData] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  const [lastFetched, setLastFetched] = React.useState(null);
-  const [tick, setTick] = React.useState(0);
-
-  const refresh = () => setTick(t => t + 1);
-
-  React.useEffect(() => {
-    setLoading(true);
-    const fetchData = () => {
-      fetch(url)
-        .then(r => r.json())
-        .then(d => {
-          setData(d);
-          setLoading(false);
-          setLastFetched(new Date());
-        })
-        .catch(() => setLoading(false));
-    };
-    fetchData();
-    const id = setInterval(fetchData, interval);
-    return () => clearInterval(id);
-  }, [url, tick]);
-
-  return { data, loading, lastFetched, refresh };
+function escapeHtml(str) {
+  if (typeof str !== 'string') return str || '';
+  return str.replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[m]);
 }
 
-// ─── Panel 1: Cost Trend Chart ────────────────────────
-function CostTrendPanel() {
-  const { data, loading } = useFetch(`${API}/cost-trend`);
-  const canvasRef = React.useRef(null);
-  const chartRef  = React.useRef(null);
+// ─── Panel 1: Cost Trend ─────────────────────────────────
+async function fetchCostTrend() {
+  try {
+    const res = await fetch(`${API}/cost-trend`);
+    if (!res.ok) throw new Error("Cost trend fetch error");
+    const data = await res.json();
+    renderCostChart(data);
+  } catch (err) {
+    document.getElementById("costTrendContainer").innerHTML =
+      '<div class="loading">No cost data available (connect dashboard_api)</div>';
+  }
+}
 
-  React.useEffect(() => {
-    if (!data || !canvasRef.current) return;
+function renderCostChart(data) {
+  const container = document.getElementById("costTrendContainer");
+  if (!data || Object.keys(data).length === 0) {
+    container.innerHTML = '<div class="loading">No cost records found</div>';
+    return;
+  }
+  container.innerHTML = '<canvas id="costChart"></canvas>';
+  const ctx = document.getElementById("costChart");
 
-    const colors = ["#63b3ed","#68d391","#f6e05e","#fc8181","#d6bcfa"];
-    const services = Object.keys(data);
+  const colors = ["#63b3ed", "#68d391", "#f6e05e", "#fc8181", "#d6bcfa"];
+  const services = Object.keys(data);
+  const allTimestamps = [...new Set(services.flatMap(s => data[s].map(p => p.timestamp)))].sort();
 
-    const allTimestamps = [...new Set(
-      services.flatMap(s => data[s].map(p => p.timestamp))
-    )].sort();
+  const datasets = services.map((service, i) => {
+    const lookup = {};
+    data[service].forEach(p => { lookup[p.timestamp] = p.cost_usd; });
+    return {
+      label: service.replace("Amazon ", "").replace("AWS ", ""),
+      data: allTimestamps.map(ts => lookup[ts] ?? null),
+      borderColor: colors[i % colors.length],
+      backgroundColor: colors[i % colors.length] + "22",
+      tension: 0.4,
+      spanGaps: true,
+      pointRadius: 3
+    };
+  });
 
-    const datasets = services.map((service, i) => {
-      const lookup = {};
-      data[service].forEach(p => { lookup[p.timestamp] = p.cost_usd; });
-      return {
-        label: service.replace("Amazon ", "").replace("AWS ", ""),
-        data: allTimestamps.map(ts => lookup[ts] ?? null),
-        borderColor: colors[i % colors.length],
-        backgroundColor: colors[i % colors.length] + "22",
-        tension: 0.4,
-        spanGaps: true,
-        pointRadius: 3
-      };
-    });
+  if (costChartInstance) {
+    costChartInstance.destroy();
+  }
 
-    if (chartRef.current) chartRef.current.destroy();
-
-    chartRef.current = new Chart(canvasRef.current, {
-      type: "line",
-      data: {
-        labels: allTimestamps.map(ts => {
-          const d = new Date(ts);
-          return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:00`;
-        }),
-        datasets
+  costChartInstance = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: allTimestamps.map(ts => {
+        const d = new Date(ts);
+        return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:00`;
+      }),
+      datasets
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: "#a0aec0", font: { size: 11 } } }
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: "#a0aec0", font: { size: 11 } } }
+      scales: {
+        x: {
+          ticks: { color: "#718096", maxTicksLimit: 8, font: { size: 10 } },
+          grid: { color: "#2d3748" }
         },
-        scales: {
-          x: {
-            ticks: { color: "#718096", maxTicksLimit: 8, font: { size: 10 } },
-            grid: { color: "#2d3748" }
-          },
-          y: {
-            ticks: { color: "#718096", callback: v => `$${v.toFixed(3)}` },
-            grid: { color: "#2d3748" }
-          }
+        y: {
+          ticks: { color: "#718096", callback: v => `$${Number(v).toFixed(3)}` },
+          grid: { color: "#2d3748" }
         }
       }
-    });
-  }, [data]);
-
-  return (
-    <div className="card">
-      <h2>📈 Cost Trend</h2>
-      {loading
-        ? <div className="loading">Loading cost data...</div>
-        : <div className="chart-container"><canvas ref={canvasRef}/></div>
-      }
-      <div className="refresh-note">Refreshes every 60s</div>
-    </div>
-  );
+    }
+  });
 }
 
-// ─── Panel 2: Anomaly Feed ────────────────────────────
-function AnomalyFeedPanel() {
-  const { data, loading, lastFetched, refresh } = useFetch(`${API}/anomalies`);
-
-  return (
-    <div className="card">
-      <h2>🚨 Anomaly Feed
-        <span style={{marginLeft:"auto", display:"flex", alignItems:"center", gap:8}}>
-          {data && <span style={{color:"#fc8181", fontSize:12}}>
-            {data.filter(a => a.status === "pending").length} pending
-          </span>}
-          <button onClick={refresh} style={{
-            background:"#2d3748", border:"none", color:"#a0aec0",
-            padding:"3px 10px", borderRadius:6, cursor:"pointer", fontSize:11
-          }}>⟳ Refresh</button>
-        </span>
-      </h2>
-      {lastFetched && <div style={{fontSize:11, color:"#4a5568", marginBottom:8}}>
-        Last fetched: {lastFetched.toLocaleTimeString()}
-      </div>}
-      {loading
-        ? <div className="loading">Loading anomalies...</div>
-        : <div className="anomaly-list">
-            {(!data || data.length === 0)
-              ? <div className="loading">No anomalies detected yet</div>
-              : data.map((a, i) => (
-                <div key={i} className={`anomaly-item ${a.status}`}>
-                  <div>
-                    <span className={`badge ${a.anomaly_type}`}>
-                      {a.anomaly_type.replace(/_/g," ")}
-                    </span>
-                    <span style={{marginLeft:8, color:"#718096", fontSize:11}}>
-                      {a.model} · {timeAgo(a.timestamp)}
-                    </span>
-                  </div>
-                  <div style={{display:"flex", alignItems:"center", gap:8}}>
-                    <span style={{fontSize:11, color:"#a0aec0"}}>
-                      {(a.confidence * 100).toFixed(0)}% conf
-                    </span>
-                    <span className={`badge ${a.status}`}>{a.status}</span>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-      }
-      <div className="refresh-note">Refreshes every 60s</div>
-    </div>
-  );
+// ─── Panel 2: Anomaly Feed ───────────────────────────────
+async function fetchAnomalies() {
+  const listEl = document.getElementById("anomalyList");
+  try {
+    const res = await fetch(`${API}/anomalies`);
+    if (!res.ok) throw new Error("Anomalies fetch error");
+    const data = await res.json();
+    renderAnomalies(data);
+    document.getElementById("lastAnomalyFetch").textContent = `Last fetched: ${new Date().toLocaleTimeString()}`;
+  } catch (err) {
+    listEl.innerHTML = '<div class="loading">No anomalies available</div>';
+  }
 }
 
-// ─── Panel 3: Optimization Log ────────────────────────
-function OptimizationLogPanel() {
-  const { data, loading } = useFetch(`${API}/optimization-log`);
+function renderAnomalies(data) {
+  const listEl = document.getElementById("anomalyList");
+  const badgeEl = document.getElementById("pendingBadge");
 
-  return (
-    <div className="card">
-      <h2>⚙️ Optimization Log</h2>
-      {loading
-        ? <div className="loading">Loading log...</div>
-        : <div className="log-list">
-            {(!data || data.length === 0)
-              ? <div className="loading">No actions taken yet</div>
-              : data.map((item, i) => (
-                <div key={i} className="log-item">
-                  <div className="log-header">
-                    <span className="action-name">
-                      {item.action_taken.replace(/_/g," ")}
-                    </span>
-                    <span className="saving">
-                      {item.estimated_saving_usd > 0
-                        ? `−$${item.estimated_saving_usd.toFixed(4)}/hr`
-                        : "flagged"}
-                    </span>
-                  </div>
-                  <div className="resource">
-                    {item.resource_type} · {item.resource_id?.substring(0,30)}
-                    {item.resource_id?.length > 30 ? "..." : ""}
-                    · <span className={`badge ${item.status}`}>{item.status}</span>
-                  </div>
-                  <div style={{fontSize:11, color:"#718096"}}>
-                    {item.anomaly_type.replace(/_/g," ")} · {timeAgo(item.timestamp)}
-                  </div>
-                  {item.rollback_command && item.rollback_command !== "none" &&
-                    <div className="rollback">↩ {item.rollback_command}</div>
-                  }
-                </div>
-              ))
-            }
-          </div>
-      }
-      <div className="refresh-note">Refreshes every 60s</div>
-    </div>
-  );
-}
+  if (!data || data.length === 0) {
+    listEl.innerHTML = '<div class="loading">No anomalies detected yet</div>';
+    badgeEl.textContent = "";
+    return;
+  }
 
-// ─── Panel 4: Savings Summary ────────────────────────
-function SavingsSummaryPanel() {
-  const { data, loading } = useFetch(`${API}/savings-summary`);
+  const pendingCount = data.filter(a => a.status === "pending").length;
+  badgeEl.textContent = pendingCount > 0 ? `${pendingCount} pending` : "";
 
-  return (
-    <div className="card full-width">
-      <h2>💰 Savings Summary</h2>
-      {loading
-        ? <div className="loading">Loading summary...</div>
-        : !data ? <div className="loading">No data</div>
-        : <>
-            <div className="savings-grid">
-              <div className="stat-box">
-                <div className="value green">${data.total_saving_usd?.toFixed(4)}</div>
-                <div className="label">Saved this run ($/hr)</div>
-              </div>
-              <div className="stat-box">
-                <div className="value blue">${data.total_saving_daily?.toFixed(3)}</div>
-                <div className="label">Projected daily saving</div>
-              </div>
-              <div className="stat-box">
-                <div className="value yellow">${data.total_saving_monthly?.toFixed(2)}</div>
-                <div className="label">Projected monthly saving</div>
-              </div>
-              <div className="stat-box">
-                <div className="value"
-                  style={{color: data.actions_taken > 0 ? "#68d391" : "#718096"}}>
-                  {data.actions_taken}
-                </div>
-                <div className="label">
-                  Actions taken · {data.actions_skipped} skipped · {data.actions_failed} failed
-                </div>
-              </div>
-            </div>
+  listEl.innerHTML = data.map(a => {
+    const status = escapeHtml(a.status || 'pending');
+    const type = escapeHtml(a.anomaly_type || 'unknown');
+    const model = escapeHtml(a.model || '');
+    const conf = Math.round((Number(a.confidence) || 0) * 100);
+    const ago = timeAgo(a.timestamp);
 
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:24}}>
-              <div>
-                <div style={{fontSize:12, color:"#718096", marginBottom:8}}>
-                  SAVINGS BY RESOURCE TYPE
-                </div>
-                <div className="breakdown">
-                  {Object.entries(data.savings_by_type || {}).map(([k,v],i) => {
-                    const max = Math.max(...Object.values(data.savings_by_type));
-                    return (
-                      <div key={i} className="breakdown-row">
-                        <div className="breakdown-label">{k}</div>
-                        <div className="breakdown-bar-bg">
-                          <div className="breakdown-bar"
-                            style={{width: max > 0 ? `${(v/max)*100}%` : "0%"}}/>
-                        </div>
-                        <div className="breakdown-value">${v.toFixed(4)}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div>
-                <div style={{fontSize:12, color:"#718096", marginBottom:8}}>
-                  ANOMALIES BY TYPE
-                </div>
-                <div className="breakdown">
-                  {Object.entries(data.anomalies_by_type || {}).map(([k,v],i) => {
-                    const max = Math.max(...Object.values(data.anomalies_by_type));
-                    return (
-                      <div key={i} className="breakdown-row">
-                        <div className="breakdown-label">{k.replace(/_/g," ")}</div>
-                        <div className="breakdown-bar-bg">
-                          <div className="breakdown-bar"
-                            style={{width: `${(v/max)*100}%`,
-                              background:"linear-gradient(90deg,#fc8181,#f6e05e)"}}/>
-                        </div>
-                        <div className="breakdown-value">{v}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </>
-      }
-      <div className="refresh-note">Refreshes every 60s</div>
-    </div>
-  );
-}
-
-// ─── App Root ─────────────────────────────────────────
-function App() {
-  const [lastUpdate, setLastUpdate] = React.useState(new Date());
-
-  React.useEffect(() => {
-    const id = setInterval(() => setLastUpdate(new Date()), 60000);
-    return () => clearInterval(id);
-  }, []);
-
-  return (
-    <>
-      <div className="header">
+    return `
+      <div class="anomaly-item ${status}">
         <div>
-          <h1>☁️ AWS Cost Intelligence System</h1>
-          <div style={{fontSize:12, color:"#4a5568", marginTop:4}}>
-            ML-powered anomaly detection · Autonomous optimization
-          </div>
+          <span class="badge ${type}">${type.replace(/_/g, " ")}</span>
+          <span style="margin-left:8px; color:#718096; font-size:11px;">${model} · ${ago}</span>
         </div>
-        <div className="status">
-          <div className="dot"/>
-          Live · Last updated {timeAgo(lastUpdate)}
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:#a0aec0;">${conf}% conf</span>
+          <span class="badge ${status}">${status}</span>
         </div>
       </div>
-      <div className="grid">
-        <CostTrendPanel />
-        <AnomalyFeedPanel />
-        <OptimizationLogPanel />
-        <SavingsSummaryPanel />
-      </div>
-    </>
-  );
+    `;
+  }).join("");
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+// ─── Panel 3: Optimization Log ───────────────────────────
+async function fetchOptimizationLog() {
+  const logEl = document.getElementById("logList");
+  try {
+    const res = await fetch(`${API}/optimization-log`);
+    if (!res.ok) throw new Error("Optimization log fetch error");
+    const data = await res.json();
+    renderOptimizationLog(data);
+  } catch (err) {
+    logEl.innerHTML = '<div class="loading">No actions taken yet</div>';
+  }
+}
+
+function renderOptimizationLog(data) {
+  const logEl = document.getElementById("logList");
+  if (!data || data.length === 0) {
+    logEl.innerHTML = '<div class="loading">No actions taken yet</div>';
+    return;
+  }
+
+  logEl.innerHTML = data.map(item => {
+    const action = escapeHtml(item.action_taken || '').replace(/_/g, " ");
+    const saving = Number(item.estimated_saving_usd) || 0;
+    const savingStr = saving > 0 ? `−$${saving.toFixed(4)}/hr` : "flagged";
+    const resType = escapeHtml(item.resource_type || '');
+    const resId = escapeHtml(item.resource_id || '');
+    const resIdShort = resId.length > 30 ? resId.substring(0, 30) + '...' : resId;
+    const status = escapeHtml(item.status || '');
+    const anomType = escapeHtml(item.anomaly_type || '').replace(/_/g, " ");
+    const ago = timeAgo(item.timestamp);
+    const rollback = item.rollback_command && item.rollback_command !== "none"
+      ? `<div class="rollback">↩ ${escapeHtml(item.rollback_command)}</div>`
+      : "";
+
+    return `
+      <div class="log-item">
+        <div class="log-header">
+          <span class="action-name">${action}</span>
+          <span class="saving">${savingStr}</span>
+        </div>
+        <div class="resource">
+          ${resType} · ${resIdShort} · <span class="badge ${status}">${status}</span>
+        </div>
+        <div style="font-size:11px; color:#718096;">
+          ${anomType} · ${ago}
+        </div>
+        ${rollback}
+      </div>
+    `;
+  }).join("");
+}
+
+// ─── Panel 4: Savings Summary ────────────────────────────
+async function fetchSavingsSummary() {
+  const summaryEl = document.getElementById("savingsSummaryContainer");
+  try {
+    const res = await fetch(`${API}/savings-summary`);
+    if (!res.ok) throw new Error("Savings summary fetch error");
+    const data = await res.json();
+    renderSavingsSummary(data);
+  } catch (err) {
+    summaryEl.innerHTML = '<div class="loading">No savings data available</div>';
+  }
+}
+
+function renderSavingsSummary(data) {
+  const summaryEl = document.getElementById("savingsSummaryContainer");
+  if (!data) {
+    summaryEl.innerHTML = '<div class="loading">No data</div>';
+    return;
+  }
+
+  const hourly = (Number(data.total_saving_usd) || 0).toFixed(4);
+  const daily = (Number(data.total_saving_daily) || 0).toFixed(3);
+  const monthly = (Number(data.total_saving_monthly) || 0).toFixed(2);
+  const taken = data.actions_taken || 0;
+  const skipped = data.actions_skipped || 0;
+  const failed = data.actions_failed || 0;
+
+  const savingsByType = data.savings_by_type || {};
+  const maxSavings = Math.max(...Object.values(savingsByType), 0.0001);
+  const savingsRows = Object.entries(savingsByType).map(([k, v]) => `
+    <div class="breakdown-row">
+      <div class="breakdown-label">${escapeHtml(k)}</div>
+      <div class="breakdown-bar-bg">
+        <div class="breakdown-bar" style="width: ${(v / maxSavings) * 100}%"></div>
+      </div>
+      <div class="breakdown-value">$${Number(v).toFixed(4)}</div>
+    </div>
+  `).join("") || '<div style="font-size:12px; color:#718096;">None recorded</div>';
+
+  const anomaliesByType = data.anomalies_by_type || {};
+  const maxAnom = Math.max(...Object.values(anomaliesByType), 1);
+  const anomalyRows = Object.entries(anomaliesByType).map(([k, v]) => `
+    <div class="breakdown-row">
+      <div class="breakdown-label">${escapeHtml(k).replace(/_/g, " ")}</div>
+      <div class="breakdown-bar-bg">
+        <div class="breakdown-bar" style="width: ${(v / maxAnom) * 100}%; background: linear-gradient(90deg,#fc8181,#f6e05e);"></div>
+      </div>
+      <div class="breakdown-value">${v}</div>
+    </div>
+  `).join("") || '<div style="font-size:12px; color:#718096;">None detected</div>';
+
+  summaryEl.innerHTML = `
+    <div class="savings-grid">
+      <div class="stat-box">
+        <div class="value green">$${hourly}</div>
+        <div class="label">Saved this run ($/hr)</div>
+      </div>
+      <div class="stat-box">
+        <div class="value blue">$${daily}</div>
+        <div class="label">Projected daily saving</div>
+      </div>
+      <div class="stat-box">
+        <div class="value yellow">$${monthly}</div>
+        <div class="label">Projected monthly saving</div>
+      </div>
+      <div class="stat-box">
+        <div class="value" style="color: ${taken > 0 ? '#68d391' : '#718096'}">${taken}</div>
+        <div class="label">Actions taken · ${skipped} skipped · ${failed} failed</div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+      <div>
+        <div style="font-size:12px; color:#718096; margin-bottom:8px;">SAVINGS BY RESOURCE TYPE</div>
+        <div class="breakdown">${savingsRows}</div>
+      </div>
+      <div>
+        <div style="font-size:12px; color:#718096; margin-bottom:8px;">ANOMALIES BY TYPE</div>
+        <div class="breakdown">${anomalyRows}</div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── App Refresh Cycle ───────────────────────────────────
+async function refreshAll() {
+  document.getElementById("liveStatus").textContent = `Live · ${new Date().toLocaleTimeString()}`;
+  await Promise.all([
+    fetchCostTrend(),
+    fetchAnomalies(),
+    fetchOptimizationLog(),
+    fetchSavingsSummary()
+  ]);
+}
+
+document.getElementById("refreshAnomaliesBtn").addEventListener("click", fetchAnomalies);
+
+// Initial load
+refreshAll();
+
+// Auto refresh every 60 seconds
+setInterval(refreshAll, 60000);
 </script>
 </body>
 </html>

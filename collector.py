@@ -1,9 +1,7 @@
 import boto3
 import os
-import json
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
-from mock_data import get_cost_data_mock
 
 load_dotenv()
 
@@ -22,6 +20,32 @@ s3 = boto3.client('s3', region_name=REGION)
 # ─────────────────────────────────────────
 # STREAM 1: Billing Metrics (Cost Explorer)
 # ─────────────────────────────────────────
+def get_cost_data_mock():
+    timestamp = datetime.now(timezone.utc).isoformat()
+    return [
+        {
+            "timestamp": timestamp,
+            "service": "Amazon EC2",
+            "region": REGION,
+            "cost_usd": 0.023,
+            "resource_id": "i-0abc123def456"
+        },
+        {
+            "timestamp": timestamp,
+            "service": "AWS Lambda",
+            "region": REGION,
+            "cost_usd": 0.0,
+            "resource_id": "cost-telemetry-collector"
+        },
+        {
+            "timestamp": timestamp,
+            "service": "Amazon RDS",
+            "region": REGION,
+            "cost_usd": 0.017,
+            "resource_id": "cost-intelligence-db"
+        }
+    ]
+
 def collect_billing_metrics():
     print("  [1/3] Collecting billing metrics...")
     records = get_cost_data_mock()  # Swap with real CE call later
@@ -41,17 +65,16 @@ def collect_billing_metrics():
 # ─────────────────────────────────────────
 # STREAM 2: Utilization Metrics (CloudWatch)
 # ─────────────────────────────────────────
-def collect_utilization_metrics():
+def collect_utilization_metrics(instances=None):
     print("  [2/3] Collecting utilization metrics...")
     
-    # Get all running EC2 instances
-    response = ec2.describe_instances(
-        Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
-    )
-    
-    instances = [
-        i for r in response["Reservations"] for i in r["Instances"]
-    ]
+    if instances is None:
+        response = ec2.describe_instances(
+            Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
+        )
+        instances = [i for r in response["Reservations"] for i in r["Instances"]]
+    else:
+        instances = [i for i in instances if i.get("State", {}).get("Name") == "running"]
     
     if not instances:
         print("     ⚠️  No running EC2 instances found — skipping CloudWatch pull")
@@ -91,23 +114,25 @@ def collect_utilization_metrics():
 # ─────────────────────────────────────────
 # STREAM 3: Resource Inventory
 # ─────────────────────────────────────────
-def collect_resource_inventory():
+def collect_resource_inventory(instances=None):
     print("  [3/3] Collecting resource inventory...")
     timestamp = datetime.now(timezone.utc).isoformat()
 
     # EC2 instances
-    ec2_resp = ec2.describe_instances()
-    for reservation in ec2_resp["Reservations"]:
-        for instance in reservation["Instances"]:
-            table.put_item(Item={
-                "resource_id": instance["InstanceId"],
-                "timestamp": timestamp,
-                "metric_type": "inventory",
-                "service": "Amazon EC2",
-                "region": REGION,
-                "state": instance["State"]["Name"],
-                "instance_type": instance["InstanceType"]
-            })
+    if instances is None:
+        ec2_resp = ec2.describe_instances()
+        instances = [i for r in ec2_resp["Reservations"] for i in r["Instances"]]
+
+    for instance in instances:
+        table.put_item(Item={
+            "resource_id": instance["InstanceId"],
+            "timestamp": timestamp,
+            "metric_type": "inventory",
+            "service": "Amazon EC2",
+            "region": REGION,
+            "state": instance["State"]["Name"],
+            "instance_type": instance["InstanceType"]
+        })
 
     # Lambda functions
     lambda_resp = lambda_client.list_functions()
@@ -136,6 +161,7 @@ def collect_resource_inventory():
         })
 
     print(f"     ✅ Inventory snapshot written to DynamoDB")
+    return instances
 
 
 # ─────────────────────────────────────────
@@ -144,8 +170,8 @@ def collect_resource_inventory():
 def run_collector():
     print(f"\n🚀 Collector run started at {datetime.now(timezone.utc).isoformat()}")
     collect_billing_metrics()
-    collect_utilization_metrics()
-    collect_resource_inventory()
+    instances = collect_resource_inventory()
+    collect_utilization_metrics(instances=instances)
     print(f"✅ Collector run complete\n")
 
 if __name__ == "__main__":

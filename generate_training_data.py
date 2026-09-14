@@ -20,7 +20,7 @@ def generate_training_data(days=5):
     """
     print(f"Generating {days} days of synthetic training data...")
     
-    EC2_INSTANCE_ID = "i-0aa9b48a77f3f6bd7"  # Your real instance ID
+    EC2_INSTANCE_ID = os.getenv("EC2_INSTANCE_ID", "i-0aa9b48a77f3f6bd7")
     now = datetime.now(timezone.utc)
     records_written = 0
 
@@ -71,36 +71,5 @@ def generate_training_data(days=5):
     print("   - Day 2 14:00 UTC → CPU runaway (85-95%)")
     print("   - Day 2 14:00 UTC → Cost spike ($2.50)")
 
-''''
-def inject_fresh_anomaly():
-    """Injects an anomaly at current timestamp so dashboard shows it as 'just now'."""
-    from datetime import datetime, timezone
-    
-    EC2_INSTANCE_ID = "i-0aa9b48a77f3f6bd7"
-    now = datetime.now(timezone.utc).isoformat()
-
-    # Fresh CPU spike anomaly — right now
-    table.put_item(Item={
-        "resource_id": EC2_INSTANCE_ID,
-        "timestamp": now,
-        "metric_type": "utilization",
-        "service": "Amazon EC2",
-        "region": REGION,
-        "cpu_utilization": "91.5"   # High enough to trigger Prophet
-    })
-
-    # Fresh cost spike — right now
-    table.put_item(Item={
-        "resource_id": EC2_INSTANCE_ID,
-        "timestamp": now,
-        "metric_type": "billing",
-        "service": "Amazon EC2",
-        "region": REGION,
-        "cost_usd": "3.50"          # High enough to trigger Isolation Forest
-    })
-
-    print(f"✅ Fresh anomaly data injected at {now}")
-'''
 if __name__ == "__main__":
     generate_training_data(days=5)
-    #inject_fresh_anomaly()          # ← add this line

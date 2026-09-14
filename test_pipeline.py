@@ -1,6 +1,6 @@
 import boto3
+from boto3.dynamodb.conditions import Attr
 import pytest
-import time
 import os
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
@@ -22,35 +22,12 @@ lambda_client  = boto3.client('lambda', region_name=REGION)
 # ─────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────
-def write_metric(resource_id, metric_type, extra):
-    item = {
-        "resource_id": resource_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "metric_type": metric_type,
-        "service": "Amazon EC2",
-        "region": REGION,
-        **extra
-    }
-    cost_table.put_item(Item=item)
-    return item
-
 def get_latest_anomaly(anomaly_type):
     response = anomaly_table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr("anomaly_type").eq(anomaly_type)
+        FilterExpression=Attr("anomaly_type").eq(anomaly_type)
     )
-    items = sorted(response["Items"], key=lambda x: x.get("timestamp",""), reverse=True)
+    items = sorted(response.get("Items", []), key=lambda x: x.get("timestamp",""), reverse=True)
     return items[0] if items else None
-
-def get_latest_audit(anomaly_type):
-    response = audit_table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr("anomaly_type").eq(anomaly_type)
-    )
-    items = sorted(response["Items"], key=lambda x: x.get("timestamp",""), reverse=True)
-    return items[0] if items else None
-
-def get_instance_state():
-    response = ec2_client.describe_instances(InstanceIds=[EC2_INSTANCE])
-    return response["Reservations"][0]["Instances"][0]["State"]["Name"]
 
 
 # ─────────────────────────────────────────────────────
@@ -64,7 +41,7 @@ class TestCollector:
         collect_billing_metrics()
 
         response = cost_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr("metric_type").eq("billing")
+            FilterExpression=Attr("metric_type").eq("billing")
         )
         assert len(response["Items"]) > 0, "No billing records found in DynamoDB"
 
@@ -74,7 +51,7 @@ class TestCollector:
         collect_utilization_metrics()
 
         response = cost_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr("metric_type").eq("utilization")
+            FilterExpression=Attr("metric_type").eq("utilization")
         )
         assert len(response["Items"]) > 0, "No utilization records found in DynamoDB"
 
@@ -84,7 +61,7 @@ class TestCollector:
         collect_resource_inventory()
 
         response = cost_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr("metric_type").eq("inventory")
+            FilterExpression=Attr("metric_type").eq("inventory")
         )
         assert len(response["Items"]) > 0, "No inventory records found in DynamoDB"
 
@@ -194,8 +171,8 @@ class TestCostSpikeDetection:
 
         response = cost_table.scan(
             FilterExpression=
-                boto3.dynamodb.conditions.Attr("metric_type").eq("billing") &
-                boto3.dynamodb.conditions.Attr("cost_usd").eq("5.00")
+                Attr("metric_type").eq("billing") &
+                Attr("cost_usd").eq("5.00")
         )
         assert len(response["Items"]) > 0, "Cost spike record not found in DynamoDB"
 
@@ -216,7 +193,7 @@ class TestOptimizationEngine:
     def test_audit_records_have_rollback_command(self):
         """Every actioned audit record must have a rollback command."""
         response = audit_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("actioned")
+            FilterExpression=Attr("status").eq("actioned")
         )
         for item in response["Items"]:
             assert "rollback_command" in item, \

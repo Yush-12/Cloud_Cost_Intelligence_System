@@ -1,14 +1,20 @@
 from flask import Flask, jsonify
-from flask_cors import CORS
 import boto3
+from boto3.dynamodb.conditions import Attr
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from dotenv import load_dotenv
+from db_utils import scan_all
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
 REGION = os.getenv("AWS_REGION", "us-east-1")
 dynamo = boto3.resource('dynamodb', region_name=REGION)
@@ -19,27 +25,13 @@ audit_table    = dynamo.Table("OptimizationAudit")
 
 
 # ─────────────────────────────────────────
-# Helper: scan full table with pagination
-# ─────────────────────────────────────────
-def full_scan(table, filter_expr=None):
-    kwargs = {"FilterExpression": filter_expr} if filter_expr else {}
-    response = table.scan(**kwargs)
-    items = response["Items"]
-    while "LastEvaluatedKey" in response:
-        kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
-        response = table.scan(**kwargs)
-        items.extend(response["Items"])
-    return items
-
-
-# ─────────────────────────────────────────
 # PANEL 1: Cost Trend
 # ─────────────────────────────────────────
 @app.route("/api/cost-trend")
 def cost_trend():
-    items = full_scan(
+    items = scan_all(
         cost_table,
-        boto3.dynamodb.conditions.Attr("metric_type").eq("billing")
+        Attr("metric_type").eq("billing")
     )
 
     # Group by service and sort by timestamp
@@ -65,7 +57,7 @@ def cost_trend():
 # ─────────────────────────────────────────
 @app.route("/api/anomalies")
 def anomalies():
-    items = full_scan(anomaly_table)
+    items = scan_all(anomaly_table)
     items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
     result = []
@@ -87,7 +79,7 @@ def anomalies():
 # ─────────────────────────────────────────
 @app.route("/api/optimization-log")
 def optimization_log():
-    items = full_scan(audit_table)
+    items = scan_all(audit_table)
     items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
     result = []
@@ -112,7 +104,7 @@ def optimization_log():
 # ─────────────────────────────────────────
 @app.route("/api/savings-summary")
 def savings_summary():
-    items = full_scan(audit_table)
+    items = scan_all(audit_table)
 
     total_saving   = sum(float(i.get("estimated_saving_usd", 0)) for i in items)
     actioned_count = sum(1 for i in items if i.get("status") == "actioned")
@@ -127,7 +119,7 @@ def savings_summary():
         by_type[rtype] = round(by_type.get(rtype, 0) + saving, 6)
 
     # Anomaly breakdown
-    anomaly_items = full_scan(anomaly_table)
+    anomaly_items = scan_all(anomaly_table)
     by_anomaly = {}
     for item in anomaly_items:
         atype = item.get("anomaly_type", "Unknown")

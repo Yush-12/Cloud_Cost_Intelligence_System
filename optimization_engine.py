@@ -1,8 +1,9 @@
 import boto3
+from boto3.dynamodb.conditions import Attr
 import os
-import time
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from db_utils import scan_all
 
 load_dotenv()
 
@@ -10,7 +11,6 @@ REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Circuit breaker config
 MAX_ACTIONS_PER_HOUR = 5       # Never execute more than 5 actions per run
-DESTRUCTIVE_COOLDOWN = 86400   # 24 hours before any destructive action (volume delete)
 
 # Initialize clients
 dynamo = boto3.resource('dynamodb', region_name=REGION)
@@ -38,19 +38,7 @@ ACTION_RULES = {
 # ─────────────────────────────────────────
 def fetch_pending_anomalies():
     print("  Fetching pending anomalies from DynamoDB...")
-    
-    response = anomaly_table.scan(
-        FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("pending")
-    )
-    items = response["Items"]
-    
-    while "LastEvaluatedKey" in response:
-        response = anomaly_table.scan(
-            FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("pending"),
-            ExclusiveStartKey=response["LastEvaluatedKey"]
-        )
-        items.extend(response["Items"])
-    
+    items = scan_all(anomaly_table, Attr("status").eq("pending"))
     print(f"     ✅ Found {len(items)} pending anomalies")
     return items
 
@@ -73,12 +61,6 @@ def stop_ec2_instance(anomaly):
         i for r in response["Reservations"] for i in r["Instances"]
     ]
 
-    # Filter out instances that are already stopped or stopping
-    instances = [
-        i for i in instances
-        if i["State"]["Name"] == "running"
-    ]
-
     if not instances:
         return {
             "status": "skipped",
@@ -92,25 +74,7 @@ def stop_ec2_instance(anomaly):
     instance_id = target["InstanceId"]
     instance_type = target["InstanceType"]
 
-    # Dry-run check first
-    try:
-        ec2_client.stop_instances(
-            InstanceIds=[instance_id],
-            DryRun=True
-        )
-    except ec2_client.exceptions.ClientError as e:
-        if "DryRunOperation" in str(e):
-            pass  # Dry run succeeded — we have permission
-        else:
-            return {
-                "status": "failed",
-                "reason": str(e),
-                "estimated_saving_usd": 0
-            }
-
-    # Execute actual stop
     ec2_client.stop_instances(InstanceIds=[instance_id])
-    
     print(f"     ✅ Stopped EC2 instance {instance_id} ({instance_type})")
     
     return {
@@ -234,6 +198,14 @@ def tag_resource_for_review(anomaly):
     }
 
 
+# Action name → function mapping (module-level, built once)
+ACTION_FUNCTIONS = {
+    "stop_ec2_instance":      stop_ec2_instance,
+    "cap_lambda_concurrency": cap_lambda_concurrency,
+    "tag_resource_for_review": tag_resource_for_review,
+}
+
+
 # ─────────────────────────────────────────
 # CIRCUIT BREAKER
 # ─────────────────────────────────────────
@@ -326,15 +298,8 @@ def run_engine():
 
         print(f"     Rule matched: {anomaly_type} → {action_name}")
 
-        # Execute the action
-        action_functions = {
-            "stop_ec2_instance":    stop_ec2_instance,
-            "cap_lambda_concurrency": cap_lambda_concurrency,
-            "tag_resource_for_review": tag_resource_for_review,
-        }
-
         try:
-            result = action_functions[action_name](anomaly)
+            result = ACTION_FUNCTIONS[action_name](anomaly)
         except Exception as e:
             result = {
                 "status": "failed",
