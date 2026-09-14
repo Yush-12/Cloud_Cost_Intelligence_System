@@ -47,9 +47,4 @@ Thumbs.db
 
 # ─── Jupyter ──────────────────────────────────────
 .ipynb_checkpoints/
-*.ipynb
-
-# ─── Prophet / Stan build artifacts ───────────────
-prophet_cache/
-cmdstan/
-*.stan
+*.ipynb

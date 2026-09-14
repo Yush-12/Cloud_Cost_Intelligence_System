@@ -1,6 +1,6 @@
 # ☁️ AWS Cost Intelligence System
 
-A real-world cloud cost intelligence platform that connects to a live AWS account, detects genuine cost anomalies using ML, and autonomously executes safe optimizations through AWS APIs — all visualized on a real-time dashboard.
+A real-world cloud cost intelligence platform that connects to a live AWS account, detects genuine cost anomalies using statistical analysis, and autonomously executes safe optimizations through AWS APIs — all visualized on a real-time dashboard.
 
 ---
 
@@ -12,8 +12,8 @@ Collector (every 15 min)
 CostTelemetry (DynamoDB)
     ↓ read by
 Anomaly Detector
-  ├── Prophet (seasonal time-series)
-  └── Isolation Forest (multivariate)
+  ├── Statistical Time-Series Detector (Z-score, moving baseline)
+  └── Multivariate Correlation Detector (CPU + billing correlation)
     ↓ writes to
 AnomalyEvents (DynamoDB)
     ↓ read by
@@ -26,7 +26,7 @@ OptimizationAudit (DynamoDB)
     ↓ read by
 Dashboard API (Flask :5000)
     ↓ served to
-dashboard.html (React, auto-refreshes 60s)
+dashboard.html (Vanilla JS + Chart.js, auto-refreshes 60s)
 ```
 
 ---
@@ -37,28 +37,27 @@ dashboard.html (React, auto-refreshes 60s)
 Cloud_Cost_Intelligence_System/
 │
 ├── .env.example                  ← Copy to .env and fill in values
-├── .gitignore
-├── requirements.txt
-├── README.md
+├── .gitignore                    ← Git ignore rules (caches, secrets, environments)
+├── requirements.txt              ← Lean dependencies (boto3, flask, python-dotenv, pytest)
+├── README.md                     ← Project overview and documentation
 ├── RUNBOOK.md                    ← Full operational guide
 │
-├── mock_data.py                  ← Phase 1: Mock Cost Explorer billing data
-├── verify_phase1.py              ← Phase 1: Verify all AWS resources are live
+├── db_utils.py                   ← Shared DynamoDB pagination utility (scan_all)
 │
-├── collector.py                  ← Phase 2: Telemetry pipeline (3 metric streams)
+├── collector.py                  ← Telemetry pipeline (billing, utilization, inventory)
 │
-├── generate_training_data.py     ← Phase 3: Synthetic historical data generator
-├── anomaly_detector.py           ← Phase 3: Prophet + Isolation Forest ML models
+├── generate_training_data.py     ← Synthetic historical data generator with anomaly injection
+├── anomaly_detector.py           ← Lightweight statistical & multivariate anomaly detection
 │
-├── optimization_engine.py        ← Phase 4: Autonomous optimization engine
-├── rollback.py                   ← Phase 4: Undo all optimization actions
+├── optimization_engine.py        ← Autonomous optimization engine with circuit breaker
+├── rollback.py                   ← Undo all optimization actions
 │
-├── dashboard_api.py              ← Phase 5: Flask REST API (4 endpoints)
-├── dashboard.html                ← Phase 5: React dashboard (single file)
-├── run_pipeline.py               ← Phase 5: Runs full pipeline every 15 min
+├── dashboard_api.py              ← Flask REST API (5 endpoints with CORS support)
+├── dashboard.html                ← Vanilla JS dashboard + Chart.js (single file, zero build tools)
+├── run_pipeline.py               ← Pipeline loop runner (direct function imports, every 15 min)
 │
-├── test_pipeline.py              ← Phase 6: 18 automated tests (pytest)
-└── validate_savings.py           ← Phase 6: Cost attribution validator
+├── test_pipeline.py              ← 18 automated tests across 7 test classes (pytest)
+└── validate_savings.py           ← Cost attribution validator
 ```
 
 ---
@@ -91,6 +90,7 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+> The dependency footprint is deliberately minimal: only `boto3`, `flask`, `python-dotenv`, and `pytest` are required.
 
 ### 4. Configure environment
 ```bash
@@ -109,7 +109,7 @@ aws configure
 ## 📋 Phase-by-Phase Setup
 
 ### Phase 1 — Foundation & Cloud Provisioning
-Provision AWS resources manually via AWS Console:
+Provision AWS resources manually via AWS Console or CLI:
 - IAM Role (`CostIntelligenceLambdaRole`) + IAM User (`cost-intelligence-local`)
 - EC2 `t2.micro` instance
 - S3 bucket
@@ -117,19 +117,14 @@ Provision AWS resources manually via AWS Console:
 - DynamoDB table (`CostTelemetry`)
 - Lambda function (`cost-telemetry-collector`)
 
-Verify everything is working:
-```bash
-python verify_phase1.py
-```
-
 ### Phase 2 — Telemetry Pipeline
-Collect 3 metric streams every 15 minutes into DynamoDB:
+Collect 3 metric streams (billing, CloudWatch utilization, resource inventory) into DynamoDB:
 ```bash
 python collector.py
 ```
 
-### Phase 3 — ML Anomaly Detection
-Generate synthetic training data then run both ML models:
+### Phase 3 — Statistical Anomaly Detection
+Generate synthetic historical data (optional, for demo/testing) and run anomaly detection:
 ```bash
 python generate_training_data.py
 python anomaly_detector.py
@@ -140,7 +135,7 @@ Execute safe, reversible actions on detected anomalies:
 ```bash
 python optimization_engine.py
 
-# To undo all actions:
+# To undo all optimization actions:
 python rollback.py
 ```
 
@@ -157,12 +152,12 @@ python dashboard_api.py
 python run_pipeline.py
 ```
 
-Then open `dashboard.html` in your browser.
+Then open `dashboard.html` directly in your browser.
 
 ### Phase 6 — Validation & Testing
 ```bash
 # Run full test suite (18 tests)
-pytest test_pipeline.py -v --html=test_report.html
+pytest test_pipeline.py -v
 
 # Validate cost savings attribution
 python validate_savings.py
@@ -170,58 +165,67 @@ python validate_savings.py
 
 ---
 
-## 🤖 ML Models
+## 🔍 Anomaly Detection Engine
 
-### Facebook Prophet
-- Detects **seasonal time-series anomalies**
-- Learns daily/weekly CPU usage patterns
-- Flags points outside the 95% confidence interval
-- Anomaly types: `idle_instance`, `cpu_spike`
+The anomaly detection engine in `anomaly_detector.py` uses lightweight statistical methods from Python's standard library (`statistics`), providing deterministic, fast detection without heavy ML library overhead.
 
-### Isolation Forest (scikit-learn)
-- Detects **multivariate point anomalies**
-- Combines CPU utilization + billing cost simultaneously
-- Catches runaway functions where both metrics spike together
-- Anomaly types: `cost_spike`, `runaway_function`, `orphaned_volume`
+### 1. Statistical Time-Series Detector
+- **Methodology**: Computes moving average and standard deviation over chronological CPU utilization records.
+- **CPU Spike Detection**: Flags instances where CPU utilization is $\ge 80\%$ or $\ge 2.5$ standard deviations above baseline. Confidence scales dynamically ($0.85 - 0.99$) based on severity.
+- **Idle Instance Detection**: Flags instances where CPU utilization is $\le 1.0\%$ or $\ge 2.5$ standard deviations below baseline. Confidence scales based on idle ratio.
+- **Anomaly Types**: `cpu_spike`, `idle_instance`
 
-### Confidence Threshold
-Default: `0.85` — tune in `anomaly_detector.py`:
+### 2. Multivariate Correlation Detector
+- **Methodology**: Aggregates CPU utilization and billing costs into hourly buckets to identify cross-metric anomalies (with a direct cost fallback for isolated billing records).
+- **Runaway Function**: High CPU ($> 70\%$) combined with elevated billing ($> \$0.50$).
+- **Orphaned Volume**: Near-zero CPU ($< 2\%$) accompanied by persistent billing ($> \$0.10$).
+- **Cost Spike**: Unusually high billing surge ($> \$1.00$).
+- **Idle Instance**: Low CPU ($< 1.0\%$) over evaluation windows.
+- **Anomaly Types**: `runaway_function`, `orphaned_volume`, `cost_spike`, `idle_instance`
+
+### 3. Confidence Threshold & Escalation
+- Controlled by `CONFIDENCE_THRESHOLD = 0.85` in `anomaly_detector.py`:
 | Value | Effect |
 |---|---|
-| 0.70 | More detections, higher false-positive rate |
+| 0.70 | More detections, higher sensitivity |
 | 0.85 | Default balanced setting |
-| 0.95 | Fewer detections, very high precision |
+| 0.95 | Fewer detections, very high precision only |
+
+Only anomalies meeting or exceeding the threshold are escalated to the `AnomalyEvents` table in DynamoDB for autonomous remediation.
 
 ---
 
 ## ⚙️ Optimization Actions
 
-| Anomaly Type | Action | Reversible? |
-|---|---|---|
-| `idle_instance` | Stop EC2 instance | ✅ Yes — `aws ec2 start-instances` |
-| `cpu_spike` | Cap Lambda concurrency | ✅ Yes — `aws lambda delete-function-concurrency` |
-| `runaway_function` | Cap Lambda concurrency | ✅ Yes |
-| `cost_spike` | Tag resource for review | ✅ Yes — `aws ec2 delete-tags` |
-| `orphaned_volume` | Tag resource for review | ✅ Yes |
+| Anomaly Type | Action | Reversible? | Rollback Method |
+|---|---|---|---|
+| `idle_instance` | Stop EC2 instance | ✅ Yes | `aws ec2 start-instances` / `python rollback.py` |
+| `cpu_spike` | Cap Lambda concurrency | ✅ Yes | `aws lambda delete-function-concurrency` / `python rollback.py` |
+| `runaway_function` | Cap Lambda concurrency | ✅ Yes | `aws lambda delete-function-concurrency` / `python rollback.py` |
+| `cost_spike` | Tag resource for review (`review-needed=true`) | ✅ Yes | `aws ec2 delete-tags` / `python rollback.py` |
+| `orphaned_volume` | Tag resource for review (`review-needed=true`) | ✅ Yes | `aws ec2 delete-tags` / `python rollback.py` |
 
-**Circuit breaker:** Max 5 actions per engine run to prevent runaway automation.
+**Circuit breaker:** A maximum of 5 actions are executed per engine run to prevent runaway automation. Every action records an exact rollback CLI command in the `OptimizationAudit` table.
 
 ---
 
-## 📊 Dashboard Panels
+## 📊 Dashboard Panels & API
 
-| Panel | Data Source | Refresh |
-|---|---|---|
-| Cost Trend Chart | `CostTelemetry` DynamoDB | 60s |
-| Anomaly Feed | `AnomalyEvents` DynamoDB | 60s |
-| Optimization Log | `OptimizationAudit` DynamoDB | 60s |
-| Savings Summary | `OptimizationAudit` DynamoDB | 60s |
+The frontend (`dashboard.html`) is built in pure Vanilla JavaScript (ES6+) with Chart.js and modern CSS, requiring zero compilation or bundlers. It fetches data from `dashboard_api.py`:
+
+| Panel / Feature | API Endpoint | Data Source | Refresh Rate |
+|---|---|---|---|
+| Cost Trend Chart | `/api/cost-trend` | `CostTelemetry` DynamoDB | 60s (auto) |
+| Anomaly Feed | `/api/anomalies` | `AnomalyEvents` DynamoDB | 60s (auto) |
+| Optimization Log | `/api/optimization-log` | `OptimizationAudit` DynamoDB | 60s (auto) |
+| Savings Summary | `/api/savings-summary` | `OptimizationAudit` DynamoDB | 60s (auto) |
+| Health Check | `/api/health` | Service status | On demand |
 
 ---
 
 ## 🛠️ IAM Policy
 
-The IAM user/role needs this policy (`CostIntelligencePolicy`):
+The IAM user/role requires the following policy (`CostIntelligencePolicy`):
 
 ```json
 {
@@ -269,66 +273,96 @@ The IAM user/role needs this policy (`CostIntelligencePolicy`):
 
 ## 🔄 Swapping Mock → Real Cost Explorer
 
-Once Cost Explorer activates (24hr after enabling in AWS Console),
-replace the mock in `collector.py` — see `RUNBOOK.md` for the exact code swap.
+`collector.py` includes inlined mock billing data via `get_cost_data_mock()` for local testing prior to Cost Explorer activation.
+
+Once AWS Cost Explorer activates in your account (typically 24 hours after enabling in the AWS Console), update `collect_billing_metrics()` in `collector.py`:
+
+Replace:
+```python
+records = get_cost_data_mock()
+```
+
+With:
+```python
+ce = boto3.client('ce', region_name='us-east-1')
+response = ce.get_cost_and_usage(
+    TimePeriod={
+        "Start": (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d"),
+        "End": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    },
+    Granularity="DAILY",
+    Metrics=["BlendedCost"],
+    GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}]
+)
+records = []
+for result in response["ResultsByTime"]:
+    for group in result["Groups"]:
+        records.append({
+            "resource_id": group["Keys"][0],
+            "service": group["Keys"][0],
+            "region": REGION,
+            "cost_usd": float(group["Metrics"]["BlendedCost"]["Amount"]),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+```
 
 ---
 
-## 🧪 Test Results
+## 🧪 Test Suite
 
-Run the full suite:
+Run the full automated test suite using `pytest`:
 ```bash
 pytest test_pipeline.py -v
 ```
 
 | Test Class | Tests | What It Covers |
 |---|---|---|
-| `TestCollector` | 5 | All 3 metric streams, field validation |
-| `TestCPUSpikeDetection` | 2 | CPU spike injection + confidence threshold |
-| `TestIdleInstanceDetection` | 2 | Idle instance injection + status check |
-| `TestCostSpikeDetection` | 1 | Cost spike storage validation |
-| `TestOptimizationEngine` | 4 | Audit records, rollback commands, circuit breaker |
-| `TestDashboardAPI` | 3 | All API endpoints |
-| `TestEndToEnd` | 1 | Full pipeline inject → detect → action → audit |
+| `TestCollector` | 5 | All 3 metric streams (billing, utilization, inventory), field validation |
+| `TestCPUSpikeDetection` | 2 | CPU spike detection, standard deviation thresholds, confidence scaling |
+| `TestIdleInstanceDetection` | 2 | Idle instance detection, idle thresholding, confidence calculation |
+| `TestCostSpikeDetection` | 1 | Cost spike storage and metadata validation |
+| `TestOptimizationEngine` | 4 | Audit records, rollback commands, resource-type tagging, circuit breaker (5-action limit) |
+| `TestDashboardAPI` | 3 | Cost trend, anomalies, and optimization log API endpoints |
+| `TestEndToEnd` | 1 | Full integration pipeline: telemetry ingest → detection → action → audit |
+
+All 18 tests pass with zero external service dependencies required during mocked runs.
 
 ---
 
 ## 🔧 Troubleshooting
 
-| Error | Fix |
-|---|---|
-| `AccessDeniedException` | Add the missing action to `CostIntelligencePolicy` in IAM |
-| `ResourceNotFoundException` | DynamoDB table doesn't exist — check table names in `.env` |
-| `TypeError: Unsupported type datetime` | Call `.isoformat()` on all datetime objects |
-| `Cannot compare tz-naive and tz-aware` | Use `pd.to_datetime(ts, utc=True).tz_localize(None)` |
-| `InvalidParameterValueException` (Lambda) | Free-tier concurrency limit hit — system falls back to tagging |
-| Prophet needs more data | Run `generate_training_data.py` |
-| Dashboard shows stale data | Click ⟳ Refresh or restart `run_pipeline.py` |
+| Error | Cause | Fix |
+|---|---|---|
+| `AccessDeniedException` | Missing IAM action | Add the missing permission to `CostIntelligencePolicy` in IAM |
+| `ResourceNotFoundException` | DynamoDB table does not exist | Verify table names in `.env` match created DynamoDB tables |
+| `TypeError: Unsupported type datetime` | Datetime serialization | Call `.isoformat()` on all datetime objects before persisting |
+| `InvalidParameterValueException` (Lambda) | Concurrency quota limit | Free-tier limit reached; the engine automatically falls back to resource tagging |
+| Dashboard shows stale data | API or runner stopped | Ensure `dashboard_api.py` and `run_pipeline.py` are running; click ⟳ Refresh Data |
 
 ---
 
-## 📖 Full Operational Guide
+## 📖 Operational Runbook
 
 See [RUNBOOK.md](./RUNBOOK.md) for:
 - How to tune the confidence threshold
 - How to add a new AWS resource type
 - How to roll back specific actions
 - How to swap mock data for real Cost Explorer
-- Architecture deep-dive
+- Operational troubleshooting procedures
 
 ---
 
 ## 🏷️ Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Cloud | AWS (EC2, Lambda, S3, RDS, DynamoDB, CloudWatch, Cost Explorer) |
-| SDK | boto3 (Python) |
-| ML | Facebook Prophet, scikit-learn Isolation Forest |
-| Backend | Flask, flask-cors |
-| Frontend | React 18 (CDN), Chart.js |
-| Testing | pytest, pytest-html |
-| Data | pandas, numpy |
+| Layer | Technology | Details |
+|---|---|---|
+| Cloud Platform | AWS | EC2, Lambda, S3, RDS, DynamoDB, CloudWatch, Cost Explorer |
+| Cloud SDK | boto3 (Python) | AWS API interactions & resource management |
+| Anomaly Detection | Python `statistics` | Standard library moving average, standard deviation, Z-scores (zero ML overhead) |
+| Backend & REST API | Flask 3.1 | REST API with native CORS header handling |
+| Frontend | Vanilla JavaScript (ES6+), HTML5, CSS3 | Single-file responsive dashboard, Chart.js for data visualization |
+| Testing | pytest | Unit, functional, and end-to-end integration tests |
+| Configuration | python-dotenv | Environment variable management |
 
 ---
 
