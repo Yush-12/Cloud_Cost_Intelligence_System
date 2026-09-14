@@ -1,0 +1,8 @@
+# Production dependencies
+-r requirements.txt
+
+# Offline AWS mocking
+moto[dynamodb,ec2,lambda,cloudwatch,s3]>=5.0.0
+
+# Test runner
+pytest>=8.0.0

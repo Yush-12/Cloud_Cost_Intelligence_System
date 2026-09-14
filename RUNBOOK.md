@@ -3,27 +3,50 @@
 ## Quick Start
 | Task | Command |
 |---|---|
-| Start dashboard API | `python dashboard_api.py` |
-| Run full pipeline once | `python run_pipeline.py` (exits after 1 run) |
-| Run pipeline continuously | Keep `run_pipeline.py` running |
-| Roll back all actions | `python rollback.py` |
-| Validate savings | `python validate_savings.py` |
-| Run test suite | `pytest test_pipeline.py -v` |
+| Initialize AWS & DynamoDB tables | `python setup_aws.py` |
+| Start unified app (Dashboard UI + Pipeline) | `python app.py` |
+| Start dashboard API & UI only | `python app.py --api-only` (or `python dashboard_api.py`) |
+| Run full pipeline once | `python run_pipeline.py --once` |
+| Run pipeline continuously in foreground | `python run_pipeline.py` |
+| Run entire stack offline in Docker | `docker compose up` |
+| Roll back actions (dry run) | `python rollback.py --dry-run` |
+| Roll back all tracked actions | `python rollback.py` |
+| Validate savings attribution | `python validate_savings.py` |
+| Run offline test suite | `pytest test_pipeline.py -v` |
+
+---
+
+## Initial Setup & Verification
+
+Before running the system for the first time:
+
+1. **Copy configuration template:**
+   ```powershell
+   cp .env.example .env
+   ```
+2. **Configure credentials:**
+   Set `AWS_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` in `.env`.
+   *(Or omit if using `DYNAMODB_ENDPOINT_URL` for local development).*
+3. **Run setup script:**
+   ```powershell
+   python setup_aws.py
+   ```
+   This validates your AWS credentials or local endpoint and creates all 3 required DynamoDB tables (`CostTelemetry`, `AnomalyEvents`, `OptimizationAudit`) with `PAY_PER_REQUEST` billing mode.
 
 ---
 
 ## How to Tune the Confidence Threshold
 
-**File:** `anomaly_detector.py`
+**File:** `anomaly_detector.py` or `.env`
 **Variable:** `CONFIDENCE_THRESHOLD = 0.85`
 
 | Value | Effect |
 |---|---|
 | 0.70 | More anomalies detected, more false positives |
-| 0.85 | Default — good balance |
+| 0.85 | Default — balanced precision and recall |
 | 0.95 | Fewer detections, very high precision only |
 
-Change and re-run `anomaly_detector.py` — no other files need updating.
+Change in `.env` and re-run — no code changes required.
 
 ---
 
@@ -35,7 +58,7 @@ Example: Adding ElastiCache monitoring
 ```python
 elasticache = boto3.client('elasticache', region_name=REGION)
 clusters = elasticache.describe_cache_clusters()
-for cluster in clusters["CacheClusters"]:
+for cluster in clusters.get("CacheClusters", []):
     table.put_item(Item={
         "resource_id": cluster["CacheClusterId"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -47,21 +70,31 @@ for cluster in clusters["CacheClusters"]:
     })
 ```
 2. **Add IAM permission:** `elasticache:DescribeCacheClusters`
-3. **Add anomaly rule** in `optimization_engine.py` ACTION_RULES dict
-4. **Add action function** following the same pattern as `stop_ec2_instance`
+3. **Add anomaly rule** in `optimization_engine.py` `ACTION_RULES` dictionary.
+4. **Add action function** following the same pattern as `stop_ec2_instance`.
 
 ---
 
-## How to Roll Back Any Optimization Action
+## How to Roll Back Optimization Actions
 
-Every action in `OptimizationAudit` has a `rollback_command` field.
+Every action executed by `optimization_engine.py` is logged in `OptimizationAudit` with an audit record and rollback command.
 
-**Option A — Roll back everything:**
+**Option A — Safe rollback of tracked actions (Recommended):**
 ```powershell
+# Preview what would be rolled back
+python rollback.py --dry-run
+
+# Execute rollback for all tracked actions
 python rollback.py
 ```
+This restarts only the EC2 instances stopped by this system, removes concurrency caps from capped Lambdas, and clears review tags, then marks the audit records as `rolled_back`.
 
-**Option B — Roll back a specific action manually:**
+**Option B — Emergency account-wide rollback:**
+```powershell
+python rollback.py --all-resources
+```
+
+**Option C — Roll back a specific action manually via AWS CLI:**
 ```powershell
 # Restart a specific EC2 instance
 aws ec2 start-instances --instance-ids i-0aa9b48a77f3f6bd7
@@ -77,15 +110,8 @@ aws ec2 delete-tags --resources i-0aa9b48a77f3f6bd7 --tags Key=review-needed
 
 ## How to Swap Mock Cost Data for Real Cost Explorer
 
-**Once Cost Explorer is activated (24hr after enabling):**
+In `collector.py`, replace the `get_cost_data_mock()` call inside `collect_billing_metrics()` with real AWS Cost Explorer:
 
-In `collector.py`, replace:
-```python
-from mock_data import get_cost_data_mock
-records = get_cost_data_mock()
-```
-
-With:
 ```python
 ce = boto3.client('ce', region_name='us-east-1')
 response = ce.get_cost_and_usage(
@@ -98,8 +124,8 @@ response = ce.get_cost_and_usage(
     GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}]
 )
 records = []
-for result in response["ResultsByTime"]:
-    for group in result["Groups"]:
+for result in response.get("ResultsByTime", []):
+    for group in result.get("Groups", []):
         records.append({
             "resource_id": group["Keys"][0],
             "service": group["Keys"][0],
@@ -113,37 +139,47 @@ for result in response["ResultsByTime"]:
 
 ## Troubleshooting Common Errors
 
-| Error | Fix |
+| Error | Cause & Fix |
 |---|---|
-| `AccessDeniedException` | Add the missing action to `CostIntelligencePolicy` in IAM |
-| `ResourceNotFoundException` | DynamoDB table doesn't exist — check table names in `.env` |
-| `TypeError: Unsupported type datetime` | Call `.isoformat()` on all datetime objects before storing |
-| `Cannot compare tz-naive and tz-aware` | Use `pd.to_datetime(ts, utc=True).tz_localize(None)` |
-| Prophet needs more data | Run `generate_training_data.py` to add synthetic history |
-| Isolation Forest skipping | Not enough overlapping billing+utilization timestamps |
-| Dashboard shows stale data | Click ⟳ Refresh or restart `run_pipeline.py` |
+| `AccessDeniedException` | Add the missing action to `CloudCostIntelligenceExecutionRole` in IAM or `cloudformation.yaml` |
+| `ResourceNotFoundException` | DynamoDB table does not exist. Run `python setup_aws.py` to initialize tables |
+| `NoCredentialsError` | AWS credentials missing. Set `AWS_ACCESS_KEY_ID` in `.env` or run `aws configure` |
+| `TypeError: Unsupported type datetime` | Call `.isoformat()` on all datetime objects before storing in DynamoDB |
+| `Cannot compare tz-naive and tz-aware` | Ensure all datetimes use `datetime.now(timezone.utc)` |
+| `EndpointConnectionError` | DynamoDB Local is not running. Start it with `docker compose up dynamodb-local` |
+| Insufficient data for anomaly detection | Run `python generate_training_data.py` to populate baseline metrics |
+| Dashboard shows stale data | Click ⟳ Refresh or verify pipeline worker in `python app.py` |
 
 ---
 
 ## System Architecture Summary
+
 ```
-Collector (every 15 min)
-    ↓ writes to
-CostTelemetry (DynamoDB)
-    ↓ read by
-Anomaly Detector
-  ├── Prophet (seasonal time-series)
-  └── Isolation Forest (multivariate)
-    ↓ writes to
-AnomalyEvents (DynamoDB)
-    ↓ read by
-Optimization Engine
-  ├── stop_ec2_instance
-  ├── cap_lambda_concurrency
-  └── tag_resource_for_review
-    ↓ writes to
-OptimizationAudit (DynamoDB)
-    ↓ read by
-Dashboard API (Flask :5000)
-    ↓ served to
-dashboard.html (React, auto-refreshes 60s)
+app.py (Unified Single-Process Entry Point)
+  ├── Flask Web Server (:5000)
+  │     ├── Serves dashboard.html (Vanilla JS + Chart.js)
+  │     └── REST API (/api/cost-trend, /api/anomalies, /api/optimization-log, /api/savings-summary)
+  │
+  └── Background Pipeline Worker (every 15 min)
+        │
+        ├── 1. Collector (collector.py)
+        │     ├── Billing Metrics (Cost Explorer / Mock)
+        │     ├── Utilization Metrics (CloudWatch CPU)
+        │     └── Resource Inventory (EC2, Lambda, S3)
+        │     ↓ writes to
+        │     CostTelemetry (DynamoDB Table)
+        │
+        ├── 2. Statistical Anomaly Detector (anomaly_detector.py)
+        │     ├── Statistical moving baseline (time-series CPU spikes & idle)
+        │     └── Multivariate correlation (cost vs utilization rules)
+        │     ↓ writes to
+        │     AnomalyEvents (DynamoDB Table)
+        │
+        └── 3. Optimization Engine (optimization_engine.py)
+              ├── stop_ec2_instance (idle instances)
+              ├── cap_lambda_concurrency (runaway functions)
+              ├── tag_resource_for_review (cost spikes & orphaned volumes)
+              └── Circuit Breaker (max 5 actions/hour)
+              ↓ writes to
+              OptimizationAudit (DynamoDB Table)
+```

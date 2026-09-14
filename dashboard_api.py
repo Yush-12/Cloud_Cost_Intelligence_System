@@ -1,14 +1,32 @@
-from flask import Flask, jsonify
-import boto3
-from boto3.dynamodb.conditions import Attr
 import os
+import logging
 from datetime import datetime, timezone
+from flask import Flask, jsonify, send_file
+from boto3.dynamodb.conditions import Attr
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
+
 from db_utils import scan_all
+from aws_clients import get_table
 
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger("dashboard_api")
+
 app = Flask(__name__)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DASHBOARD_FILE = os.path.join(BASE_DIR, "dashboard.html")
+
+COST_TABLE_NAME = os.getenv("DYNAMODB_TABLE", "CostTelemetry")
+ANOMALY_TABLE_NAME = os.getenv("ANOMALY_TABLE", "AnomalyEvents")
+AUDIT_TABLE_NAME = os.getenv("AUDIT_TABLE", "OptimizationAudit")
+
 
 @app.after_request
 def add_cors_headers(response):
@@ -16,12 +34,21 @@ def add_cors_headers(response):
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
-REGION = os.getenv("AWS_REGION", "us-east-1")
-dynamo = boto3.resource('dynamodb', region_name=REGION)
 
-cost_table     = dynamo.Table("CostTelemetry")
-anomaly_table  = dynamo.Table("AnomalyEvents")
-audit_table    = dynamo.Table("OptimizationAudit")
+# ─────────────────────────────────────────
+# DASHBOARD UI
+# ─────────────────────────────────────────
+@app.route("/")
+@app.route("/dashboard")
+@app.route("/dashboard.html")
+def serve_dashboard():
+    """Serves the single-page dashboard HTML directly from Flask."""
+    if os.path.exists(DASHBOARD_FILE):
+        return send_file(DASHBOARD_FILE)
+    return (
+        "<h3>dashboard.html not found. Ensure it exists in the project root.</h3>",
+        404
+    )
 
 
 # ─────────────────────────────────────────
@@ -29,12 +56,16 @@ audit_table    = dynamo.Table("OptimizationAudit")
 # ─────────────────────────────────────────
 @app.route("/api/cost-trend")
 def cost_trend():
-    items = scan_all(
-        cost_table,
-        Attr("metric_type").eq("billing")
-    )
+    try:
+        cost_table = get_table(COST_TABLE_NAME)
+        items = scan_all(cost_table, Attr("metric_type").eq("billing"))
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            return jsonify({
+                "error": f"Table '{COST_TABLE_NAME}' not found. Please run 'python setup_aws.py' first."
+            }), 503
+        return jsonify({"error": str(e)}), 500
 
-    # Group by service and sort by timestamp
     grouped = {}
     for item in items:
         service = item.get("service", "Unknown")
@@ -45,7 +76,6 @@ def cost_trend():
             "cost_usd": float(item.get("cost_usd", 0))
         })
 
-    # Sort each service by time
     for service in grouped:
         grouped[service].sort(key=lambda x: x["timestamp"])
 
@@ -57,7 +87,16 @@ def cost_trend():
 # ─────────────────────────────────────────
 @app.route("/api/anomalies")
 def anomalies():
-    items = scan_all(anomaly_table)
+    try:
+        anomaly_table = get_table(ANOMALY_TABLE_NAME)
+        items = scan_all(anomaly_table)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            return jsonify({
+                "error": f"Table '{ANOMALY_TABLE_NAME}' not found. Please run 'python setup_aws.py' first."
+            }), 503
+        return jsonify({"error": str(e)}), 500
+
     items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
     result = []
@@ -79,7 +118,16 @@ def anomalies():
 # ─────────────────────────────────────────
 @app.route("/api/optimization-log")
 def optimization_log():
-    items = scan_all(audit_table)
+    try:
+        audit_table = get_table(AUDIT_TABLE_NAME)
+        items = scan_all(audit_table)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            return jsonify({
+                "error": f"Table '{AUDIT_TABLE_NAME}' not found. Please run 'python setup_aws.py' first."
+            }), 503
+        return jsonify({"error": str(e)}), 500
+
     items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
 
     result = []
@@ -104,7 +152,17 @@ def optimization_log():
 # ─────────────────────────────────────────
 @app.route("/api/savings-summary")
 def savings_summary():
-    items = scan_all(audit_table)
+    try:
+        audit_table = get_table(AUDIT_TABLE_NAME)
+        anomaly_table = get_table(ANOMALY_TABLE_NAME)
+        items = scan_all(audit_table)
+        anomaly_items = scan_all(anomaly_table)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            return jsonify({
+                "error": "DynamoDB tables not found. Please run 'python setup_aws.py' first."
+            }), 503
+        return jsonify({"error": str(e)}), 500
 
     total_saving   = sum(float(i.get("estimated_saving_usd", 0)) for i in items)
     actioned_count = sum(1 for i in items if i.get("status") == "actioned")
@@ -119,21 +177,20 @@ def savings_summary():
         by_type[rtype] = round(by_type.get(rtype, 0) + saving, 6)
 
     # Anomaly breakdown
-    anomaly_items = scan_all(anomaly_table)
     by_anomaly = {}
     for item in anomaly_items:
         atype = item.get("anomaly_type", "Unknown")
         by_anomaly[atype] = by_anomaly.get(atype, 0) + 1
 
     return jsonify({
-        "total_saving_usd":  round(total_saving, 4),
+        "total_saving_usd":   round(total_saving, 4),
         "total_saving_daily": round(total_saving * 24, 4),
         "total_saving_monthly": round(total_saving * 24 * 30, 4),
-        "actions_taken":     actioned_count,
-        "actions_skipped":   skipped_count,
-        "actions_failed":    failed_count,
-        "savings_by_type":   by_type,
-        "anomalies_by_type": by_anomaly
+        "actions_taken":      actioned_count,
+        "actions_skipped":    skipped_count,
+        "actions_failed":     failed_count,
+        "savings_by_type":    by_type,
+        "anomalies_by_type":  by_anomaly
     })
 
 
@@ -149,7 +206,10 @@ def health():
 
 
 if __name__ == "__main__":
-    print("\n🚀 Dashboard API starting...")
-    print("   API running at: http://localhost:5000")
-    print("   Open dashboard.html in your browser\n")
-    app.run(debug=True, port=5000)
+    host = os.getenv("FLASK_HOST", "0.0.0.0")
+    port = int(os.getenv("FLASK_PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "false").lower() in ("true", "1", "yes")
+
+    logger.info(f"Dashboard API starting on http://{host}:{port}")
+    logger.info(f"Serving dashboard UI at http://localhost:{port}/")
+    app.run(host=host, port=port, debug=debug)

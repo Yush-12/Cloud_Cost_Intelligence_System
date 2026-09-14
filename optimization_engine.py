@@ -1,25 +1,30 @@
-import boto3
-from boto3.dynamodb.conditions import Attr
 import os
+import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from boto3.dynamodb.conditions import Attr
+from botocore.exceptions import ClientError
+
 from db_utils import scan_all
+from aws_clients import (
+    get_table,
+    get_ec2_client,
+    get_lambda_client,
+    REGION
+)
 
 load_dotenv()
 
-REGION = os.getenv("AWS_REGION", "us-east-1")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger("optimization_engine")
 
-# Circuit breaker config
-MAX_ACTIONS_PER_HOUR = 5       # Never execute more than 5 actions per run
-
-# Initialize clients
-dynamo = boto3.resource('dynamodb', region_name=REGION)
-ec2_client = boto3.client('ec2', region_name=REGION)
-lambda_client = boto3.client('lambda', region_name=REGION)
-
-anomaly_table = dynamo.Table("AnomalyEvents")
-audit_table = dynamo.Table("OptimizationAudit")
-
+MAX_ACTIONS_PER_HOUR = int(os.getenv("MAX_ACTIONS_PER_HOUR", "5"))
+ANOMALY_TABLE_NAME = os.getenv("ANOMALY_TABLE", "AnomalyEvents")
+AUDIT_TABLE_NAME = os.getenv("AUDIT_TABLE", "OptimizationAudit")
 
 # ─────────────────────────────────────────
 # RULE TABLE: Anomaly Type → Safe Action
@@ -29,7 +34,7 @@ ACTION_RULES = {
     "cpu_spike":        "cap_lambda_concurrency",
     "runaway_function": "cap_lambda_concurrency",
     "cost_spike":       "tag_resource_for_review",
-    "orphaned_volume":  "tag_resource_for_review",  # Flag only, no delete without cooldown
+    "orphaned_volume":  "tag_resource_for_review",
 }
 
 
@@ -37,10 +42,21 @@ ACTION_RULES = {
 # FETCH PENDING ANOMALIES
 # ─────────────────────────────────────────
 def fetch_pending_anomalies():
-    print("  Fetching pending anomalies from DynamoDB...")
-    items = scan_all(anomaly_table, Attr("status").eq("pending"))
-    print(f"     ✅ Found {len(items)} pending anomalies")
-    return items
+    logger.info(f"Fetching pending anomalies from DynamoDB table '{ANOMALY_TABLE_NAME}'...")
+    try:
+        anomaly_table = get_table(ANOMALY_TABLE_NAME)
+        items = scan_all(anomaly_table, Attr("status").eq("pending"))
+        logger.info(f"Found {len(items)} pending anomalies")
+        return items
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            logger.error(
+                f"DynamoDB table '{ANOMALY_TABLE_NAME}' does not exist! "
+                "Please run 'python setup_aws.py' to initialize the required tables."
+            )
+        else:
+            logger.error(f"Failed to fetch pending anomalies: {e}")
+        return []
 
 
 # ─────────────────────────────────────────
@@ -50,13 +66,13 @@ def stop_ec2_instance(anomaly):
     """
     Stops idle EC2 instances. Safe — instances can be restarted anytime.
     """
-    print(f"     ⚙️  Action: stop_ec2_instance")
-    
-    # Get all running instances
+    logger.info("Action: stop_ec2_instance")
+    ec2_client = get_ec2_client()
+
     response = ec2_client.describe_instances(
         Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
     )
-    
+
     instances = [
         i for r in response["Reservations"] for i in r["Instances"]
     ]
@@ -68,30 +84,30 @@ def stop_ec2_instance(anomaly):
             "estimated_saving_usd": 0
         }
 
-    # In a real system you'd target the specific anomalous instance
-    # For safety in free-tier we only stop if CPU < 2% confirmed
     target = instances[0]
     instance_id = target["InstanceId"]
-    instance_type = target["InstanceType"]
+    instance_type = target.get("InstanceType", "unknown")
 
     ec2_client.stop_instances(InstanceIds=[instance_id])
-    print(f"     ✅ Stopped EC2 instance {instance_id} ({instance_type})")
-    
+    logger.info(f"Stopped EC2 instance {instance_id} ({instance_type})")
+
     return {
         "status": "actioned",
         "resource_id": instance_id,
         "resource_type": "EC2",
         "action": "stop_instances",
         "rollback_command": f"aws ec2 start-instances --instance-ids {instance_id}",
-        "estimated_saving_usd": 0.012  # ~t2.micro hourly rate
+        "estimated_saving_usd": 0.012
     }
 
 
 def cap_lambda_concurrency(anomaly):
-    print(f"     ⚙️  Action: cap_lambda_concurrency")
+    logger.info("Action: cap_lambda_concurrency")
+    lambda_client = get_lambda_client()
+    audit_table = get_table(AUDIT_TABLE_NAME)
 
     response = lambda_client.list_functions()
-    functions = response["Functions"]
+    functions = response.get("Functions", [])
 
     if not functions:
         return {
@@ -100,19 +116,15 @@ def cap_lambda_concurrency(anomaly):
             "estimated_saving_usd": 0
         }
 
-    # Check account-level concurrency limit first
     account_settings = lambda_client.get_account_settings()
-    total_concurrency = account_settings["AccountLimit"]["ConcurrentExecutions"]
-    print(f"     ℹ️  Account concurrency limit: {total_concurrency}")
+    total_concurrency = account_settings.get("AccountLimit", {}).get("ConcurrentExecutions", 10)
+    logger.info(f"Account concurrency limit: {total_concurrency}")
 
-    # Free-tier accounts have limit of 10 — can't reserve any without violating minimum
-    # In that case fall back to tagging the function for review instead
     if total_concurrency <= 10:
-        print(f"     ⚠️  Concurrency limit too low to reserve — falling back to tagging")
+        logger.warning("Concurrency limit too low to reserve — falling back to tagging")
         tagged = []
         for func in functions:
             func_name = func["FunctionName"]
-            # Tag via Lambda doesn't exist — use a DynamoDB flag instead
             audit_table.put_item(Item={
                 "action_id": f"flag-{func_name}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -128,7 +140,7 @@ def cap_lambda_concurrency(anomaly):
                 "rollback_command": "none",
                 "estimated_saving_usd": "0"
             })
-            print(f"     ✅ Flagged {func_name} for review in audit table")
+            logger.info(f"Flagged {func_name} for review in audit table")
             tagged.append(func_name)
 
         return {
@@ -140,16 +152,15 @@ def cap_lambda_concurrency(anomaly):
             "estimated_saving_usd": 0
         }
 
-    # Normal path — account has enough concurrency headroom
     results = []
     for func in functions:
         func_name = func["FunctionName"]
-        cap = max(10, total_concurrency // 2)  # Cap at 50% of total limit
+        cap = max(10, total_concurrency // 2)
         lambda_client.put_function_concurrency(
             FunctionName=func_name,
             ReservedConcurrentExecutions=cap
         )
-        print(f"     ✅ Capped {func_name} concurrency to {cap}")
+        logger.info(f"Capped {func_name} concurrency to {cap}")
         results.append(func_name)
 
     return {
@@ -165,10 +176,11 @@ def cap_lambda_concurrency(anomaly):
 def tag_resource_for_review(anomaly):
     """
     Tags anomalous resources with review-needed=true.
-    Completely safe — no infrastructure changes.
+    Safe — no infrastructure changes.
     """
-    print(f"     ⚙️  Action: tag_resource_for_review")
-    
+    logger.info("Action: tag_resource_for_review")
+    ec2_client = get_ec2_client()
+
     response = ec2_client.describe_instances()
     instances = [
         i for r in response["Reservations"] for i in r["Instances"]
@@ -185,7 +197,7 @@ def tag_resource_for_review(anomaly):
                 {"Key": "flagged-at", "Value": datetime.now(timezone.utc).isoformat()}
             ]
         )
-        print(f"     ✅ Tagged {instance_id} with review-needed=true")
+        logger.info(f"Tagged {instance_id} with review-needed=true")
         tagged.append(instance_id)
 
     return {
@@ -193,12 +205,11 @@ def tag_resource_for_review(anomaly):
         "resource_id": ", ".join(tagged),
         "resource_type": "EC2",
         "action": "create_tags",
-        "rollback_command": f"aws ec2 delete-tags --resources <id> --tags Key=review-needed",
+        "rollback_command": "aws ec2 delete-tags --resources <id> --tags Key=review-needed",
         "estimated_saving_usd": 0
     }
 
 
-# Action name → function mapping (module-level, built once)
 ACTION_FUNCTIONS = {
     "stop_ec2_instance":      stop_ec2_instance,
     "cap_lambda_concurrency": cap_lambda_concurrency,
@@ -212,8 +223,10 @@ ACTION_FUNCTIONS = {
 def check_circuit_breaker(actions_taken):
     """Prevents engine from executing too many actions in one run."""
     if actions_taken >= MAX_ACTIONS_PER_HOUR:
-        print(f"\n  ⚡ Circuit breaker triggered — max {MAX_ACTIONS_PER_HOUR} actions reached")
-        print(f"     No further actions will be taken this run.")
+        logger.warning(
+            f"Circuit breaker triggered — max {MAX_ACTIONS_PER_HOUR} actions reached. "
+            "No further actions will be taken this run."
+        )
         return True
     return False
 
@@ -222,40 +235,47 @@ def check_circuit_breaker(actions_taken):
 # WRITE AUDIT RECORD
 # ─────────────────────────────────────────
 def write_audit_record(anomaly, action_result):
-    """Logs every action (or skip) to OptimizationAudit table."""
-    
+    """Logs every action (or skip) to OptimizationAudit table and updates AnomalyEvents."""
     action_id = f"action-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-    
-    audit_table.put_item(Item={
-        "action_id": action_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "anomaly_id": anomaly.get("anomaly_id", "unknown"),
-        "anomaly_type": anomaly.get("anomaly_type", "unknown"),
-        "model": anomaly.get("model", "unknown"),
-        "confidence": str(anomaly.get("confidence", 0)),
-        "action_taken": action_result.get("action", "none"),
-        "resource_id": action_result.get("resource_id", "none"),
-        "resource_type": action_result.get("resource_type", "none"),
-        "status": action_result.get("status", "unknown"),
-        "reason": action_result.get("reason", ""),
-        "rollback_command": action_result.get("rollback_command", ""),
-        "estimated_saving_usd": str(action_result.get("estimated_saving_usd", 0))
-    })
-    
-    # Update anomaly status in AnomalyEvents
-    anomaly_table.update_item(
-        Key={
-            "anomaly_id": anomaly["anomaly_id"],
-            "timestamp": anomaly["timestamp"]
-        },
-        UpdateExpression="SET #s = :s, action_taken = :a",
-        ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={
-            ":s": action_result.get("status", "unknown"),
-            ":a": action_result.get("action", "none")
-        }
-    )
-    
+    audit_table = get_table(AUDIT_TABLE_NAME)
+    anomaly_table = get_table(ANOMALY_TABLE_NAME)
+
+    try:
+        audit_table.put_item(Item={
+            "action_id": action_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "anomaly_id": anomaly.get("anomaly_id", "unknown"),
+            "anomaly_type": anomaly.get("anomaly_type", "unknown"),
+            "model": anomaly.get("model", "unknown"),
+            "confidence": str(anomaly.get("confidence", 0)),
+            "action_taken": action_result.get("action", "none"),
+            "resource_id": action_result.get("resource_id", "none"),
+            "resource_type": action_result.get("resource_type", "none"),
+            "status": action_result.get("status", "unknown"),
+            "reason": action_result.get("reason", ""),
+            "rollback_command": action_result.get("rollback_command", ""),
+            "estimated_saving_usd": str(action_result.get("estimated_saving_usd", 0))
+        })
+    except ClientError as e:
+        logger.error(f"Failed to write audit record to '{AUDIT_TABLE_NAME}': {e}")
+
+    try:
+        if "anomaly_id" in anomaly and "timestamp" in anomaly:
+            anomaly_table.update_item(
+                Key={
+                    "anomaly_id": anomaly["anomaly_id"],
+                    "timestamp": anomaly["timestamp"]
+                },
+                UpdateExpression="SET #s = :s, action_taken = :a",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":s": action_result.get("status", "unknown"),
+                    ":a": action_result.get("action", "none")
+                }
+            )
+    except ClientError as e:
+        logger.error(f"Failed to update anomaly status in '{ANOMALY_TABLE_NAME}': {e}")
+
     return action_id
 
 
@@ -263,13 +283,14 @@ def write_audit_record(anomaly, action_result):
 # MAIN ENGINE RUN
 # ─────────────────────────────────────────
 def run_engine():
-    print(f"\n⚙️  Optimization engine started at {datetime.now(timezone.utc).isoformat()}")
-    print(f"   Circuit breaker limit: {MAX_ACTIONS_PER_HOUR} actions/run\n")
+    start_time = datetime.now(timezone.utc).isoformat()
+    logger.info(f"Optimization engine started at {start_time}")
+    logger.info(f"Circuit breaker limit: {MAX_ACTIONS_PER_HOUR} actions/run")
 
     anomalies = fetch_pending_anomalies()
 
     if not anomalies:
-        print("  ✅ No pending anomalies — nothing to action\n")
+        logger.info("No pending anomalies — nothing to action.")
         return
 
     actions_taken = 0
@@ -282,13 +303,11 @@ def run_engine():
         anomaly_type = anomaly.get("anomaly_type", "unknown")
         confidence = float(anomaly.get("confidence", 0))
 
-        print(f"\n  🚨 Processing: {anomaly_type} (confidence: {confidence})")
-
-        # Look up the action for this anomaly type
+        logger.info(f"Processing: {anomaly_type} (confidence: {confidence})")
         action_name = ACTION_RULES.get(anomaly_type)
 
         if not action_name:
-            print(f"     ⚠️  No rule defined for anomaly type '{anomaly_type}' — skipping")
+            logger.warning(f"No rule defined for anomaly type '{anomaly_type}' — skipping")
             write_audit_record(anomaly, {
                 "status": "skipped",
                 "reason": f"No rule defined for {anomaly_type}",
@@ -296,7 +315,7 @@ def run_engine():
             })
             continue
 
-        print(f"     Rule matched: {anomaly_type} → {action_name}")
+        logger.info(f"Rule matched: {anomaly_type} → {action_name}")
 
         try:
             result = ACTION_FUNCTIONS[action_name](anomaly)
@@ -306,29 +325,26 @@ def run_engine():
                 "reason": str(e),
                 "estimated_saving_usd": 0
             }
-            print(f"     ❌ Action failed: {e}")
+            logger.error(f"Action failed: {e}")
 
-        # Write audit record
         action_id = write_audit_record(anomaly, result)
 
         if result["status"] == "actioned":
             actions_taken += 1
             saving = float(result.get("estimated_saving_usd", 0))
             total_saving += saving
-            print(f"     📝 Audit record written: {action_id}")
-            print(f"     💰 Estimated saving: ${saving:.4f}/hr")
+            logger.info(f"Audit record written: {action_id}")
+            logger.info(f"Estimated saving: ${saving:.4f}/hr")
             if result.get("rollback_command"):
-                print(f"     ↩️  Rollback: {result['rollback_command']}")
+                logger.info(f"Rollback command: {result['rollback_command']}")
 
-    # Final summary
-    print(f"\n{'='*50}")
-    print(f"⚙️  Engine Run Summary")
-    print(f"{'='*50}")
-    print(f"  Anomalies processed: {len(anomalies)}")
-    print(f"  Actions executed:    {actions_taken}")
-    print(f"  Actions skipped:     {len(anomalies) - actions_taken}")
-    print(f"  Estimated savings:   ${total_saving:.4f}/hr")
-    print(f"{'='*50}\n")
+    logger.info("=" * 50)
+    logger.info("Optimization Engine Summary:")
+    logger.info(f"  Anomalies processed: {len(anomalies)}")
+    logger.info(f"  Actions executed:    {actions_taken}")
+    logger.info(f"  Actions skipped:     {len(anomalies) - actions_taken}")
+    logger.info(f"  Estimated savings:   ${total_saving:.4f}/hr")
+    logger.info("=" * 50)
 
 
 if __name__ == "__main__":

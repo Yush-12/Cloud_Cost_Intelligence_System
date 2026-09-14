@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Cloud Cost Intelligence System — Infrastructure as Code for DynamoDB Tables and IAM Role"
+
+Parameters:
+  CostTelemetryTableName:
+    Type: String
+    Default: CostTelemetry
+    Description: Name of the DynamoDB table for raw metrics and telemetry.
+
+  AnomalyEventsTableName:
+    Type: String
+    Default: AnomalyEvents
+    Description: Name of the DynamoDB table for detected anomalies.
+
+  OptimizationAuditTableName:
+    Type: String
+    Default: OptimizationAudit
+    Description: Name of the DynamoDB table for audit logs and savings attribution.
+
+Resources:
+  # ─────────────────────────────────────────────────────────────
+  # DynamoDB Tables
+  # ─────────────────────────────────────────────────────────────
+  CostTelemetryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref CostTelemetryTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: resource_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: resource_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      Tags:
+        - Key: Project
+          Value: CloudCostIntelligenceSystem
+
+  AnomalyEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref AnomalyEventsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: anomaly_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: anomaly_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      Tags:
+        - Key: Project
+          Value: CloudCostIntelligenceSystem
+
+  OptimizationAuditTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref OptimizationAuditTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: action_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: action_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      Tags:
+        - Key: Project
+          Value: CloudCostIntelligenceSystem
+
+  # ─────────────────────────────────────────────────────────────
+  # IAM Execution Role & Policy
+  # ─────────────────────────────────────────────────────────────
+  CostIntelligenceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CloudCostIntelligenceExecutionRole
+      Description: Least-privilege IAM execution role for the Cloud Cost Intelligence System
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CostIntelligencePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # DynamoDB Access
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:DescribeTable
+                Resource:
+                  - !GetAtt CostTelemetryTable.Arn
+                  - !GetAtt AnomalyEventsTable.Arn
+                  - !GetAtt OptimizationAuditTable.Arn
+
+              # CloudWatch Metrics Read
+              - Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                Resource: "*"
+
+              # EC2 Inventory & Optimization Actions
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:StopInstances
+                  - ec2:StartInstances
+                  - ec2:CreateTags
+                  - ec2:DeleteTags
+                Resource: "*"
+
+              # Lambda Inventory & Concurrency Management
+              - Effect: Allow
+                Action:
+                  - lambda:ListFunctions
+                  - lambda:GetAccountSettings
+                  - lambda:PutFunctionConcurrency
+                  - lambda:DeleteFunctionConcurrency
+                Resource: "*"
+
+              # S3 Bucket Inventory
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                Resource: "*"
+
+              # AWS Cost Explorer
+              - Effect: Allow
+                Action:
+                  - ce:GetCostAndUsage
+                Resource: "*"
+
+Outputs:
+  CostTelemetryTableArn:
+    Description: ARN of CostTelemetry DynamoDB table
+    Value: !GetAtt CostTelemetryTable.Arn
+
+  AnomalyEventsTableArn:
+    Description: ARN of AnomalyEvents DynamoDB table
+    Value: !GetAtt AnomalyEventsTable.Arn
+
+  OptimizationAuditTableArn:
+    Description: ARN of OptimizationAudit DynamoDB table
+    Value: !GetAtt OptimizationAuditTable.Arn
+
+  CostIntelligenceRoleArn:
+    Description: ARN of IAM Role for Cost Intelligence System
+    Value: !GetAtt CostIntelligenceRole.Arn

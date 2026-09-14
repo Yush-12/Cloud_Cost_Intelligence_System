@@ -1,19 +1,26 @@
-import boto3
-from boto3.dynamodb.conditions import Attr
 import os
 import statistics
+import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from boto3.dynamodb.conditions import Attr
+from botocore.exceptions import ClientError
+
 from db_utils import scan_all
+from aws_clients import get_table
 
 load_dotenv()
 
-REGION = os.getenv("AWS_REGION", "us-east-1")
-TABLE_NAME = os.getenv("DYNAMODB_TABLE", "CostTelemetry")
-CONFIDENCE_THRESHOLD = 0.85  # Anomalies above this score get escalated
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger("anomaly_detector")
 
-dynamo = boto3.resource('dynamodb', region_name=REGION)
-table = dynamo.Table(TABLE_NAME)
+TABLE_NAME = os.getenv("DYNAMODB_TABLE", "CostTelemetry")
+ANOMALY_TABLE_NAME = os.getenv("ANOMALY_TABLE", "AnomalyEvents")
+CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.85"))
 
 
 def safe_float(val, default=0.0):
@@ -31,13 +38,24 @@ def safe_float(val, default=0.0):
 # ─────────────────────────────────────────
 def fetch_metrics(metric_type="utilization", resource_id=None):
     """Fetch all records of a given metric type from DynamoDB."""
-    print(f"  Fetching {metric_type} records from DynamoDB...")
-    filter_expr = Attr("metric_type").eq(metric_type)
-    if resource_id:
-        filter_expr = filter_expr & Attr("resource_id").eq(resource_id)
-    items = scan_all(table, filter_expr)
-    print(f"     ✅ Fetched {len(items)} records")
-    return items
+    logger.info(f"Fetching {metric_type} records from DynamoDB table '{TABLE_NAME}'...")
+    try:
+        table = get_table(TABLE_NAME)
+        filter_expr = Attr("metric_type").eq(metric_type)
+        if resource_id:
+            filter_expr = filter_expr & Attr("resource_id").eq(resource_id)
+        items = scan_all(table, filter_expr)
+        logger.info(f"Fetched {len(items)} {metric_type} records")
+        return items
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            logger.error(
+                f"DynamoDB table '{TABLE_NAME}' does not exist! "
+                "Please run 'python setup_aws.py' to initialize the required tables."
+            )
+        else:
+            logger.error(f"Failed to fetch metrics: {e}")
+        return []
 
 
 # ─────────────────────────────────────────
@@ -48,10 +66,10 @@ def detect_time_series_anomalies(items):
     Detects time-series CPU anomalies using moving baseline statistics.
     Identifies runaway spikes and idle instances with high confidence.
     """
-    print("\n  [DETECTOR 1] Running statistical time-series detection...")
-    
+    logger.info("[DETECTOR 1] Running statistical time-series detection...")
+
     if not items:
-        print("     ⚠️  No utilization data available — skipping")
+        logger.warning("No utilization data available — skipping time-series detection")
         return []
 
     # Sort items chronologically
@@ -89,7 +107,7 @@ def detect_time_series_anomalies(items):
                 "confidence": round(confidence, 4)
             })
 
-    print(f"     ✅ Found {len(results)} time-series anomalies")
+    logger.info(f"Found {len(results)} time-series anomalies")
     return results
 
 
@@ -101,7 +119,7 @@ def detect_multivariate_anomalies(utilization_items, billing_items):
     Detects multivariate anomalies correlating cost and CPU usage.
     Catches runaway functions, orphaned volumes, and cost spikes.
     """
-    print("\n  [DETECTOR 2] Running multivariate correlation detection...")
+    logger.info("[DETECTOR 2] Running multivariate correlation detection...")
 
     # Bucket timestamps to hour strings (YYYY-MM-DDTHH)
     util_by_hour = {}
@@ -165,7 +183,7 @@ def detect_multivariate_anomalies(utilization_items, billing_items):
                 "confidence": round(confidence, 4)
             })
 
-    print(f"     ✅ Found {len(results)} multivariate anomalies")
+    logger.info(f"Found {len(results)} multivariate anomalies")
     return results
 
 
@@ -175,45 +193,39 @@ def detect_multivariate_anomalies(utilization_items, billing_items):
 def save_anomalies(anomalies):
     """Saves detected anomalies to DynamoDB for optimization engine to consume."""
     try:
-        anomaly_table = dynamo.Table("AnomalyEvents")
+        anomaly_table = get_table(ANOMALY_TABLE_NAME)
+        # Test existence
         anomaly_table.load()
-    except Exception:
-        existing = [t.name for t in dynamo.tables.all()]
-        if "AnomalyEvents" not in existing:
-            print("\n  Creating AnomalyEvents table...")
-            new_table = dynamo.create_table(
-                TableName="AnomalyEvents",
-                KeySchema=[
-                    {"AttributeName": "anomaly_id", "KeyType": "HASH"},
-                    {"AttributeName": "timestamp", "KeyType": "RANGE"}
-                ],
-                AttributeDefinitions=[
-                    {"AttributeName": "anomaly_id", "AttributeType": "S"},
-                    {"AttributeName": "timestamp", "AttributeType": "S"}
-                ],
-                BillingMode="PAY_PER_REQUEST"
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
+            logger.error(
+                f"DynamoDB table '{ANOMALY_TABLE_NAME}' does not exist! "
+                "Please run 'python setup_aws.py' to initialize the required tables."
             )
-            print("     ⏳ Waiting for table to become active...")
-            new_table.wait_until_exists()
-            print("     ✅ AnomalyEvents table ready")
-        anomaly_table = dynamo.Table("AnomalyEvents")
+            return 0
+        else:
+            logger.error(f"Error accessing table '{ANOMALY_TABLE_NAME}': {e}")
+            return 0
 
     saved = 0
     now_str = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
     for i, anomaly in enumerate(anomalies):
         if anomaly["confidence"] >= CONFIDENCE_THRESHOLD:
-            anomaly_table.put_item(Item={
-                "anomaly_id": f"anomaly-{i}-{now_str}",
-                "timestamp": anomaly["timestamp"],
-                "model": anomaly["model"],
-                "anomaly_type": anomaly["anomaly_type"],
-                "confidence": str(anomaly["confidence"]),
-                "status": "pending",
-                "action_taken": "none"
-            })
-            saved += 1
+            try:
+                anomaly_table.put_item(Item={
+                    "anomaly_id": f"anomaly-{i}-{now_str}",
+                    "timestamp": anomaly["timestamp"],
+                    "model": anomaly["model"],
+                    "anomaly_type": anomaly["anomaly_type"],
+                    "confidence": str(anomaly["confidence"]),
+                    "status": "pending",
+                    "action_taken": "none"
+                })
+                saved += 1
+            except ClientError as e:
+                logger.error(f"Failed to write anomaly to '{ANOMALY_TABLE_NAME}': {e}")
 
-    print(f"\n  ✅ Saved {saved} high-confidence anomalies to AnomalyEvents table")
+    logger.info(f"Saved {saved} high-confidence anomalies (threshold >= {CONFIDENCE_THRESHOLD}) to '{ANOMALY_TABLE_NAME}'")
     return saved
 
 
@@ -221,8 +233,9 @@ def save_anomalies(anomalies):
 # MAIN DETECTION RUN
 # ─────────────────────────────────────────
 def run_detection():
-    print(f"\n🔍 Anomaly detection started at {datetime.now(timezone.utc).isoformat()}")
-    print(f"   Confidence threshold: {CONFIDENCE_THRESHOLD}\n")
+    start_time = datetime.now(timezone.utc).isoformat()
+    logger.info(f"Anomaly detection run started at {start_time}")
+    logger.info(f"Confidence threshold: {CONFIDENCE_THRESHOLD}")
 
     utilization_items = fetch_metrics("utilization")
     billing_items = fetch_metrics("billing")
@@ -232,19 +245,20 @@ def run_detection():
 
     all_anomalies = ts_anomalies + multi_anomalies
 
-    print(f"\n📊 Detection Summary:")
-    print(f"   Time-series anomalies:  {len(ts_anomalies)}")
-    print(f"   Multivariate anomalies: {len(multi_anomalies)}")
-    print(f"   Total:                  {len(all_anomalies)}")
+    logger.info(
+        f"Detection Summary — Time-series: {len(ts_anomalies)}, "
+        f"Multivariate: {len(multi_anomalies)}, Total: {len(all_anomalies)}"
+    )
 
     if all_anomalies:
-        print(f"\n   High-confidence anomalies (≥{CONFIDENCE_THRESHOLD}):")
         for a in all_anomalies:
             if a["confidence"] >= CONFIDENCE_THRESHOLD:
-                print(f"   🚨 [{a['model']}] {a['anomaly_type']} at {a['timestamp']} — confidence: {a['confidence']}")
+                logger.info(
+                    f"🚨 [{a['model']}] {a['anomaly_type']} at {a['timestamp']} — confidence: {a['confidence']}"
+                )
 
     save_anomalies(all_anomalies)
-    print(f"\n✅ Detection run complete\n")
+    logger.info("Anomaly detection run complete.")
 
 
 if __name__ == "__main__":

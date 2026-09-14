@@ -1,0 +1,43 @@
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: cost-intel-dynamodb
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  init-tables:
+    build: .
+    container_name: cost-intel-init
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=local_key
+      - AWS_SECRET_ACCESS_KEY=local_secret
+      - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
+    command: python setup_aws.py
+    depends_on:
+      - dynamodb-local
+    restart: "no"
+
+  app:
+    build: .
+    container_name: cost-intel-app
+    ports:
+      - "5000:5000"
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=local_key
+      - AWS_SECRET_ACCESS_KEY=local_secret
+      - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8000
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=5000
+      - PIPELINE_INTERVAL_SECONDS=900
+      - CONFIDENCE_THRESHOLD=0.85
+      - MAX_ACTIONS_PER_HOUR=5
+    depends_on:
+      init-tables:
+        condition: service_completed_successfully
+    restart: unless-stopped
