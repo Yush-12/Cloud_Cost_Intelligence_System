@@ -1,9 +1,14 @@
 import os
+import sys
 import pytest
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from moto import mock_aws
 import boto3
 from boto3.dynamodb.conditions import Attr
+
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Ensure test AWS credentials
 os.environ["AWS_ACCESS_KEY_ID"] = "testing"
@@ -13,24 +18,22 @@ os.environ["AWS_SESSION_TOKEN"] = "testing"
 os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 os.environ["AWS_REGION"] = "us-east-1"
 
-from aws_clients import (
+from src.aws_clients import (
     get_table,
-    get_dynamodb_resource,
     get_ec2_client,
-    get_lambda_client,
     get_s3_client,
     REGION
 )
-from setup_aws import setup_tables
-from collector import (
+from scripts.setup_aws import setup_tables
+from src.collector import (
     collect_billing_metrics,
     collect_utilization_metrics,
     collect_resource_inventory
 )
-from anomaly_detector import run_detection
-from optimization_engine import run_engine, MAX_ACTIONS_PER_HOUR
-from dashboard_api import app as flask_app
-from rollback import rollback_audit_actions
+from src.anomaly_detector import run_detection
+from src.optimization_engine import run_engine, MAX_ACTIONS_PER_HOUR
+from web.dashboard_api import app as flask_app
+from src.rollback import rollback_audit_actions
 
 
 @pytest.fixture(autouse=True)

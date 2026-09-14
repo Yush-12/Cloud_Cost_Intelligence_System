@@ -10,8 +10,13 @@ Verifies AWS credentials / DynamoDB connectivity and creates required DynamoDB t
 import os
 import sys
 import logging
+from pathlib import Path
 from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
-from aws_clients import (
+
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.aws_clients import (
     get_dynamodb_resource,
     get_dynamodb_client,
     get_sts_client,
@@ -71,7 +76,7 @@ def verify_connection():
             return True
         except (EndpointConnectionError, ClientError) as e:
             logger.error(f"❌ Could not connect to DynamoDB endpoint at {DYNAMODB_ENDPOINT_URL}: {e}")
-            logger.error("   Make sure DynamoDB Local is running (e.g., via docker-compose up).")
+            logger.error("   Make sure DynamoDB Local is running (e.g., via docker compose up).")
             return False
 
     logger.info(f"Targeting AWS Region: {REGION}")
@@ -138,7 +143,7 @@ def main():
 
     if success:
         logger.info("\n🎉 All DynamoDB tables are verified and ready to use!")
-        logger.info("Next step: run 'python app.py' or 'python run_pipeline.py'.\n")
+        logger.info("Next step: run 'python app.py'.\n")
         sys.exit(0)
     else:
         logger.error("\n❌ Setup completed with errors. Check the logs above.\n")

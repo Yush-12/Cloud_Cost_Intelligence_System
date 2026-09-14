@@ -1,13 +1,18 @@
 import os
+import sys
 import logging
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 import boto3
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 
-from db_utils import scan_all
-from aws_clients import get_table, REGION
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.db_utils import scan_all
+from src.aws_clients import get_table, REGION
 
 load_dotenv()
 
@@ -32,13 +37,13 @@ def validate_savings():
         items = scan_all(audit_table, Attr("status").eq("actioned"))
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            logger.error(f"Table '{AUDIT_TABLE_NAME}' not found. Run 'python setup_aws.py' first.")
+            logger.error(f"Table '{AUDIT_TABLE_NAME}' not found. Run 'python scripts/setup_aws.py' first.")
             return
         logger.error(f"Error accessing '{AUDIT_TABLE_NAME}': {e}")
         return
 
     if not items:
-        logger.info("No actioned records found — run optimization_engine.py first")
+        logger.info("No actioned records found — run optimization_engine first")
         return
 
     # System estimated savings

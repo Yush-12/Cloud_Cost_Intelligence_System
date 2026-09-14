@@ -1,21 +1,19 @@
-#!/usr/bin/env python3
-"""
-run_pipeline.py — Sequential execution of collector, anomaly detector, and optimization engine.
-Supports single-run and recurring loop with graceful shutdown.
-"""
-
 import os
 import sys
 import time
 import signal
 import logging
 import argparse
+from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-from collector import run_collector
-from anomaly_detector import run_detection
-from optimization_engine import run_engine
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.collector import run_collector
+from src.anomaly_detector import run_detection
+from src.optimization_engine import run_engine
 
 load_dotenv()
 

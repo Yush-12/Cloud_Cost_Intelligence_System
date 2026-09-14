@@ -1,13 +1,18 @@
 import os
+import sys
 import statistics
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 
-from db_utils import scan_all
-from aws_clients import get_table
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.db_utils import scan_all
+from src.aws_clients import get_table
 
 load_dotenv()
 
@@ -51,7 +56,7 @@ def fetch_metrics(metric_type="utilization", resource_id=None):
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             logger.error(
                 f"DynamoDB table '{TABLE_NAME}' does not exist! "
-                "Please run 'python setup_aws.py' to initialize the required tables."
+                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
             )
         else:
             logger.error(f"Failed to fetch metrics: {e}")
@@ -194,13 +199,12 @@ def save_anomalies(anomalies):
     """Saves detected anomalies to DynamoDB for optimization engine to consume."""
     try:
         anomaly_table = get_table(ANOMALY_TABLE_NAME)
-        # Test existence
         anomaly_table.load()
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             logger.error(
                 f"DynamoDB table '{ANOMALY_TABLE_NAME}' does not exist! "
-                "Please run 'python setup_aws.py' to initialize the required tables."
+                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
             )
             return 0
         else:

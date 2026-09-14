@@ -1,10 +1,15 @@
 import os
+import sys
 import logging
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from botocore.exceptions import ClientError
 
-from aws_clients import (
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.aws_clients import (
     get_table,
     get_ec2_client,
     get_cloudwatch_client,
@@ -75,7 +80,7 @@ def collect_billing_metrics():
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             logger.error(
                 f"DynamoDB table '{TABLE_NAME}' does not exist! "
-                "Please run 'python setup_aws.py' to initialize the required tables."
+                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
             )
         else:
             logger.error(f"Error writing billing metrics: {e}")
@@ -135,7 +140,7 @@ def collect_utilization_metrics(instances=None):
             logger.info(f"EC2 {instance_id}: CPU {round(cpu_value, 2)}%")
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                logger.error(f"DynamoDB table '{TABLE_NAME}' does not exist! Run 'python setup_aws.py'.")
+                logger.error(f"DynamoDB table '{TABLE_NAME}' does not exist! Run 'python scripts/setup_aws.py'.")
                 break
             else:
                 logger.error(f"Error collecting metrics for instance {instance_id}: {e}")
@@ -170,7 +175,7 @@ def collect_resource_inventory(instances=None):
             })
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
-            logger.error(f"DynamoDB table '{TABLE_NAME}' does not exist! Run 'python setup_aws.py'.")
+            logger.error(f"DynamoDB table '{TABLE_NAME}' does not exist! Run 'python scripts/setup_aws.py'.")
             return []
         logger.error(f"Error collecting EC2 inventory: {e}")
         instances = []

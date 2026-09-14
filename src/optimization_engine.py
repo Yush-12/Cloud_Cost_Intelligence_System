@@ -1,12 +1,17 @@
 import os
+import sys
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 
-from db_utils import scan_all
-from aws_clients import (
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.db_utils import scan_all
+from src.aws_clients import (
     get_table,
     get_ec2_client,
     get_lambda_client,
@@ -52,7 +57,7 @@ def fetch_pending_anomalies():
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             logger.error(
                 f"DynamoDB table '{ANOMALY_TABLE_NAME}' does not exist! "
-                "Please run 'python setup_aws.py' to initialize the required tables."
+                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
             )
         else:
             logger.error(f"Failed to fetch pending anomalies: {e}")

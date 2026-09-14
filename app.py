@@ -18,8 +18,8 @@ import argparse
 import logging
 from dotenv import load_dotenv
 
-from dashboard_api import app as flask_app
-from run_pipeline import run_pipeline_once
+from web.dashboard_api import app as flask_app
+from src.pipeline import run_pipeline_once
 
 load_dotenv()
 

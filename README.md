@@ -8,26 +8,26 @@ A real-world cloud cost intelligence platform that connects to an AWS account (o
 
 ```
 app.py (Unified Single-Process Entry Point)
-  ├── Flask Web Server (:5000)
+  ├── Flask Web Server (:5000) [web/dashboard_api.py]
   │     ├── Serves dashboard.html (Vanilla JS + Chart.js, zero build tools)
   │     └── REST API (/api/cost-trend, /api/anomalies, /api/optimization-log, /api/savings-summary)
   │
-  └── Background Pipeline Worker (every 15 min)
+  └── Background Pipeline Worker (every 15 min) [src/pipeline.py]
         │
-        ├── 1. Collector (collector.py)
+        ├── 1. Collector (src/collector.py)
         │     ├── Billing Metrics (Cost Explorer / Mock)
         │     ├── Utilization Metrics (CloudWatch CPU)
         │     └── Resource Inventory (EC2, Lambda, S3)
         │     ↓ writes to
         │     CostTelemetry (DynamoDB Table)
         │
-        ├── 2. Statistical Anomaly Detector (anomaly_detector.py)
+        ├── 2. Statistical Anomaly Detector (src/anomaly_detector.py)
         │     ├── Statistical moving baseline (time-series CPU spikes & idle)
         │     └── Multivariate correlation (cost vs utilization rules)
         │     ↓ writes to
         │     AnomalyEvents (DynamoDB Table)
         │
-        └── 3. Optimization Engine (optimization_engine.py)
+        └── 3. Optimization Engine (src/optimization_engine.py)
               ├── stop_ec2_instance (idle instances)
               ├── cap_lambda_concurrency (runaway functions)
               ├── tag_resource_for_review (cost spikes & orphaned volumes)
@@ -43,34 +43,46 @@ app.py (Unified Single-Process Entry Point)
 ```
 Cloud_Cost_Intelligence_System/
 │
-├── .env.example                  ← Environment template with all options documented
-├── .gitignore                    ← Git ignore rules (caches, secrets, environments)
-├── .dockerignore                 ← Docker build ignore rules
-├── Dockerfile                    ← Production container image definition
-├── docker-compose.yml            ← Multi-container setup (App + DynamoDB Local)
-├── cloudformation.yaml           ← AWS CloudFormation template (DynamoDB tables + IAM)
+├── src/                          # Core Intelligence Engine
+│   ├── __init__.py
+│   ├── aws_clients.py            # Centralized lazy boto3 initialization
+│   ├── db_utils.py               # Shared DynamoDB scan utility
+│   ├── collector.py              # Telemetry stream collection
+│   ├── anomaly_detector.py       # Statistical & multivariate detection
+│   ├── optimization_engine.py    # Remediation rules & circuit breaker
+│   ├── rollback.py               # Smart audit-based action rollback
+│   └── pipeline.py               # Sequential pipeline orchestrator
 │
-├── requirements.txt              ← Production dependencies (boto3, flask, python-dotenv, pytest)
-├── requirements-dev.txt          ← Dev & test dependencies (includes moto for offline mocking)
-├── README.md                     ← Project overview and documentation
-├── RUNBOOK.md                    ← Full operational and troubleshooting runbook
+├── web/                          # Dashboard & REST API
+│   ├── __init__.py
+│   ├── dashboard_api.py          # Flask REST API & static server
+│   └── dashboard.html            # Vanilla JS + Chart.js UI
 │
-├── aws_clients.py                ← Centralized lazy boto3 initialization with endpoint_url support
-├── setup_aws.py                  ← Idempotent table & credential verification script
-├── app.py                        ← Unified single-process entry point (API + background pipeline)
+├── scripts/                      # Setup & CLI Utilities
+│   ├── __init__.py
+│   ├── setup_aws.py              # Table & credential initializer
+│   ├── generate_training_data.py # Synthetic historical data generator
+│   └── validate_savings.py       # Cost attribution & CE validator
 │
-├── db_utils.py                   ← Shared DynamoDB pagination utility (scan_all)
-├── collector.py                  ← Telemetry pipeline (billing, CloudWatch utilization, inventory)
-├── generate_training_data.py     ← Synthetic historical data generator with anomaly injection
-├── anomaly_detector.py           ← Lightweight statistical & multivariate anomaly detection
-├── optimization_engine.py        ← Autonomous optimization engine with circuit breaker
-├── rollback.py                   ← Smart audit-based action rollback (with --dry-run)
-├── dashboard_api.py              ← Flask REST API (serves dashboard UI + 5 endpoints)
-├── dashboard.html                ← Vanilla JS dashboard + Chart.js (single file, zero build tools)
-├── run_pipeline.py               ← Pipeline loop runner with graceful shutdown
+├── tests/                        # Test Suite
+│   ├── __init__.py
+│   └── test_pipeline.py          # 17 offline tests with Moto mocks
 │
-├── test_pipeline.py              ← 17 automated offline tests with moto mocking
-└── validate_savings.py           ← Cost attribution and real Cost Explorer validator
+├── infra/                        # Deployment & Cloud Infrastructure
+│   ├── Dockerfile                # Container image definition
+│   ├── docker-compose.yml        # App + DynamoDB Local stack
+│   ├── cloudformation.yaml       # AWS CloudFormation template
+│   └── .dockerignore
+│
+├── app.py                        # Unified single-process runner (Root)
+├── docker-compose.yml            # Multi-container root runner
+├── requirements.txt              # Production dependencies
+├── requirements-dev.txt          # Test dependencies
+├── .env.example                  # Environment configuration template
+├── .gitignore                    # Git ignore rules
+├── .dockerignore                 # Docker ignore rules
+├── README.md                     # Documentation
+└── RUNBOOK.md                    # Operational runbook
 ```
 
 ---
@@ -89,7 +101,7 @@ docker compose up
 
 This starts:
 1. **DynamoDB Local** emulator on `http://localhost:8000`
-2. **Initializer** running `setup_aws.py` to create tables automatically
+2. **Initializer** running `scripts/setup_aws.py` to create tables automatically
 3. **Cost Intelligence App** running `app.py` at `http://localhost:5000`
 
 Open `http://localhost:5000` in your browser. Done!
@@ -128,7 +140,7 @@ Edit `.env` with your AWS credentials or leave default settings for local develo
 
 #### 5. Initialize DynamoDB tables
 ```bash
-python setup_aws.py
+python scripts/setup_aws.py
 ```
 This idempotent script verifies your AWS credentials (or local DynamoDB endpoint) and creates all required tables (`CostTelemetry`, `AnomalyEvents`, `OptimizationAudit`).
 
@@ -148,18 +160,18 @@ Open **`http://localhost:5000`** in your browser to view the dashboard!
 | Start unified app (Dashboard + Pipeline) | `python app.py` |
 | Start only dashboard UI & API | `python app.py --api-only` |
 | Start only pipeline runner | `python app.py --pipeline-only` |
-| Run pipeline once and exit | `python run_pipeline.py --once` |
-| Preview rollback actions | `python rollback.py --dry-run` |
-| Execute rollback of tracked actions | `python rollback.py` |
-| Emergency account-wide rollback | `python rollback.py --all-resources` |
-| Validate savings attribution | `python validate_savings.py` |
-| Run offline test suite | `pytest test_pipeline.py -v` |
+| Run pipeline once and exit | `python src/pipeline.py --once` |
+| Preview rollback actions | `python src/rollback.py --dry-run` |
+| Execute rollback of tracked actions | `python src/rollback.py` |
+| Emergency account-wide rollback | `python src/rollback.py --all-resources` |
+| Validate savings attribution | `python scripts/validate_savings.py` |
+| Run offline test suite | `pytest tests/ -v` |
 
 ---
 
 ## 🔍 Anomaly Detection Engine
 
-The anomaly detection engine in `anomaly_detector.py` uses lightweight statistical methods from Python's standard library (`statistics`), providing deterministic, fast detection without heavy ML library overhead.
+The anomaly detection engine in `src/anomaly_detector.py` uses lightweight statistical methods from Python's standard library (`statistics`), providing deterministic, fast detection without heavy ML library overhead.
 
 ### 1. Statistical Time-Series Detector
 - **Methodology**: Computes moving average and standard deviation over chronological CPU utilization records.
@@ -191,21 +203,21 @@ Only anomalies meeting or exceeding the threshold are escalated to the `AnomalyE
 
 | Anomaly Type | Action | Reversible? | Rollback Method |
 |---|---|---|---|
-| `idle_instance` | Stop EC2 instance | ✅ Yes | `python rollback.py` / `aws ec2 start-instances` |
-| `cpu_spike` | Cap Lambda concurrency | ✅ Yes | `python rollback.py` / `aws lambda delete-function-concurrency` |
-| `runaway_function` | Cap Lambda concurrency | ✅ Yes | `python rollback.py` / `aws lambda delete-function-concurrency` |
-| `cost_spike` | Tag resource for review (`review-needed=true`) | ✅ Yes | `python rollback.py` / `aws ec2 delete-tags` |
-| `orphaned_volume` | Tag resource for review (`review-needed=true`) | ✅ Yes | `python rollback.py` / `aws ec2 delete-tags` |
+| `idle_instance` | Stop EC2 instance | ✅ Yes | `python src/rollback.py` / `aws ec2 start-instances` |
+| `cpu_spike` | Cap Lambda concurrency | ✅ Yes | `python src/rollback.py` / `aws lambda delete-function-concurrency` |
+| `runaway_function` | Cap Lambda concurrency | ✅ Yes | `python src/rollback.py` / `aws lambda delete-function-concurrency` |
+| `cost_spike` | Tag resource for review (`review-needed=true`) | ✅ Yes | `python src/rollback.py` / `aws ec2 delete-tags` |
+| `orphaned_volume` | Tag resource for review (`review-needed=true`) | ✅ Yes | `python src/rollback.py` / `aws ec2 delete-tags` |
 
 **Circuit breaker:** A maximum of 5 actions are executed per engine run (configurable via `MAX_ACTIONS_PER_HOUR`) to prevent runaway automation. Every action records an exact rollback CLI command in `OptimizationAudit`.
 
-**Smart Rollback:** `rollback.py` queries `OptimizationAudit` to undo *only* the specific actions executed by this system, updating audit records to `rolled_back`. Use `--dry-run` to inspect actions before applying them.
+**Smart Rollback:** `src/rollback.py` queries `OptimizationAudit` to undo *only* the specific actions executed by this system, updating audit records to `rolled_back`. Use `--dry-run` to inspect actions before applying them.
 
 ---
 
 ## 📊 Dashboard Panels & API
 
-The frontend (`dashboard.html`) is built in pure Vanilla JavaScript (ES6+) with Chart.js and modern CSS, requiring zero compilation or bundlers. It is served directly by Flask at `/`:
+The frontend (`web/dashboard.html`) is built in pure Vanilla JavaScript (ES6+) with Chart.js and modern CSS, requiring zero compilation or bundlers. It is served directly by Flask at `/`:
 
 | Panel / Feature | API Endpoint | Data Source | Refresh Rate |
 |---|---|---|---|
@@ -219,12 +231,12 @@ The frontend (`dashboard.html`) is built in pure Vanilla JavaScript (ES6+) with 
 
 ## ☁️ Infrastructure as Code (CloudFormation)
 
-A complete AWS CloudFormation template is provided in `cloudformation.yaml` to provision all required DynamoDB tables and an IAM execution role with least-privilege permissions:
+A complete AWS CloudFormation template is provided in `infra/cloudformation.yaml` to provision all required DynamoDB tables and an IAM execution role with least-privilege permissions:
 
 ```bash
 aws cloudformation create-stack \
   --stack-name CloudCostIntelligenceStack \
-  --template-body file://cloudformation.yaml \
+  --template-body file://infra/cloudformation.yaml \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
@@ -235,7 +247,7 @@ aws cloudformation create-stack \
 To install testing dependencies and run the complete offline test suite:
 ```bash
 pip install -r requirements-dev.txt
-pytest test_pipeline.py -v
+pytest tests/ -v
 ```
 
 The test suite uses `moto` to mock all AWS services (DynamoDB, EC2, Lambda, CloudWatch, S3) in-memory:

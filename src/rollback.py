@@ -1,20 +1,17 @@
-#!/usr/bin/env python3
-"""
-rollback.py — Reverses optimization actions taken by the Cloud Cost Intelligence System.
-Queries OptimizationAudit table to target only resources altered by the system.
-Supports --dry-run and fallback --all-resources.
-"""
-
 import os
 import sys
 import logging
 import argparse
+from pathlib import Path
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 
-from db_utils import scan_all
-from aws_clients import (
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.db_utils import scan_all
+from src.aws_clients import (
     get_table,
     get_ec2_client,
     get_lambda_client
@@ -147,7 +144,6 @@ def rollback_all_resources(dry_run=False):
                     lambda_client.delete_function_concurrency(FunctionName=name)
                     logger.info(f"✅ Removed concurrency cap from Lambda: {name}")
                 except ClientError as e:
-                    # Function may not have reserved concurrency set
                     if e.response["Error"]["Code"] != "ResourceNotFoundException":
                         logger.warning(f"Note for {name}: {e}")
     except ClientError as e:

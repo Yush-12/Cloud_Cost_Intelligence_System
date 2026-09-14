@@ -1,13 +1,18 @@
 import os
+import sys
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
 from flask import Flask, jsonify, send_file
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-from db_utils import scan_all
-from aws_clients import get_table
+# Ensure repository root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.db_utils import scan_all
+from src.aws_clients import get_table
 
 load_dotenv()
 
@@ -46,7 +51,7 @@ def serve_dashboard():
     if os.path.exists(DASHBOARD_FILE):
         return send_file(DASHBOARD_FILE)
     return (
-        "<h3>dashboard.html not found. Ensure it exists in the project root.</h3>",
+        "<h3>dashboard.html not found. Ensure it exists in web/dashboard.html.</h3>",
         404
     )
 
@@ -62,7 +67,7 @@ def cost_trend():
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             return jsonify({
-                "error": f"Table '{COST_TABLE_NAME}' not found. Please run 'python setup_aws.py' first."
+                "error": f"Table '{COST_TABLE_NAME}' not found. Please run 'python scripts/setup_aws.py' first."
             }), 503
         return jsonify({"error": str(e)}), 500
 
@@ -93,7 +98,7 @@ def anomalies():
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             return jsonify({
-                "error": f"Table '{ANOMALY_TABLE_NAME}' not found. Please run 'python setup_aws.py' first."
+                "error": f"Table '{ANOMALY_TABLE_NAME}' not found. Please run 'python scripts/setup_aws.py' first."
             }), 503
         return jsonify({"error": str(e)}), 500
 
@@ -124,7 +129,7 @@ def optimization_log():
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             return jsonify({
-                "error": f"Table '{AUDIT_TABLE_NAME}' not found. Please run 'python setup_aws.py' first."
+                "error": f"Table '{AUDIT_TABLE_NAME}' not found. Please run 'python scripts/setup_aws.py' first."
             }), 503
         return jsonify({"error": str(e)}), 500
 
@@ -160,7 +165,7 @@ def savings_summary():
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
             return jsonify({
-                "error": "DynamoDB tables not found. Please run 'python setup_aws.py' first."
+                "error": "DynamoDB tables not found. Please run 'python scripts/setup_aws.py' first."
             }), 503
         return jsonify({"error": str(e)}), 500
 
