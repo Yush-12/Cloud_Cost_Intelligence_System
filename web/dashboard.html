@@ -219,9 +219,15 @@
         Telemetry pipeline · Statistical anomaly detection · Autonomous optimization
       </div>
     </div>
-    <div class="status">
-      <div class="dot"></div>
-      <span id="liveStatus">Live</span>
+    <div class="status" style="display:flex; gap:12px; align-items:center;">
+      <button id="btnRunPipeline" onclick="runPipelineNow()" style="background:#2563eb; color:#fff; border:none; padding:7px 14px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:opacity 0.2s;">
+        <span id="runIcon">⚡</span>
+        <span id="runText">Run Optimization Cycle</span>
+      </button>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div class="dot"></div>
+        <span id="liveStatus">Live</span>
+      </div>
     </div>
   </div>
 
@@ -562,6 +568,44 @@ async function refreshAll() {
 }
 
 document.getElementById("refreshAnomaliesBtn").addEventListener("click", fetchAnomalies);
+
+// Run optimization cycle on demand
+async function runPipelineNow() {
+  const btn = document.getElementById("btnRunPipeline");
+  const icon = document.getElementById("runIcon");
+  const text = document.getElementById("runText");
+  if (!btn) return;
+
+  btn.disabled = true;
+  btn.style.opacity = "0.7";
+  icon.innerText = "⏳";
+  text.innerText = "Running cycle...";
+
+  try {
+    const res = await fetch(`${API}/run-pipeline`, { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      text.innerText = "Cycle Complete!";
+      icon.innerText = "✅";
+      refreshAll();
+    } else {
+      text.innerText = "Error";
+      icon.innerText = "❌";
+      alert("Pipeline error: " + (data.error || data.message || "Failed to execute"));
+    }
+  } catch (e) {
+    text.innerText = "Error";
+    icon.innerText = "❌";
+    alert("Connection error: " + e.message);
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.style.opacity = "1";
+      icon.innerText = "⚡";
+      text.innerText = "Run Optimization Cycle";
+    }, 3000);
+  }
+}
 
 // Initial load
 refreshAll();

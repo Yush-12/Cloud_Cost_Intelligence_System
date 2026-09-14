@@ -1,0 +1,38 @@
+name: Scheduled Cost Telemetry Pipeline
+
+on:
+  schedule:
+    # Run every 15 minutes (100% free with GitHub Actions)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Execute Pipeline Cycle
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          DYNAMODB_TABLE: ${{ secrets.DYNAMODB_TABLE || 'CostTelemetry' }}
+          ANOMALY_TABLE: ${{ secrets.ANOMALY_TABLE || 'AnomalyEvents' }}
+          AUDIT_TABLE: ${{ secrets.AUDIT_TABLE || 'OptimizationAudit' }}
+          CONFIDENCE_THRESHOLD: ${{ secrets.CONFIDENCE_THRESHOLD || '0.85' }}
+          MAX_ACTIONS_PER_HOUR: ${{ secrets.MAX_ACTIONS_PER_HOUR || '5' }}
+        run: |
+          python src/pipeline.py --once

@@ -48,12 +48,39 @@ def add_cors_headers(response):
 @app.route("/dashboard.html")
 def serve_dashboard():
     """Serves the single-page dashboard HTML directly from Flask."""
-    if os.path.exists(DASHBOARD_FILE):
-        return send_file(DASHBOARD_FILE)
+    candidates = [
+        DASHBOARD_FILE,
+        os.path.join(os.getcwd(), "web", "dashboard.html"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "dashboard.html"),
+        os.path.join(os.path.abspath(os.sep), "var", "task", "web", "dashboard.html"),
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return send_file(path)
     return (
         "<h3>dashboard.html not found. Ensure it exists in web/dashboard.html.</h3>",
         404
     )
+
+
+# ─────────────────────────────────────────
+# PIPELINE TRIGGER / CRON
+# ─────────────────────────────────────────
+@app.route("/api/run-pipeline", methods=["GET", "POST"])
+@app.route("/api/cron", methods=["GET", "POST"])
+def trigger_pipeline():
+    """Trigger a single cycle of the cost intelligence pipeline (for Vercel cron or UI button)."""
+    try:
+        from src.pipeline import run_pipeline_once
+        run_pipeline_once()
+        return jsonify({
+            "status": "success",
+            "message": "Pipeline cycle executed successfully",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error executing pipeline trigger: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 # ─────────────────────────────────────────

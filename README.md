@@ -68,14 +68,21 @@ Cloud_Cost_Intelligence_System/
 │   ├── __init__.py
 │   └── test_pipeline.py          # 17 offline tests with Moto mocks
 │
+├── api/                          # Vercel Serverless Function Entry Point
+│   └── index.py                  # WSGI handler for Vercel Python runtime
+│
 ├── infra/                        # Deployment & Cloud Infrastructure
 │   ├── Dockerfile                # Container image definition
 │   ├── docker-compose.yml        # App + DynamoDB Local stack
 │   ├── cloudformation.yaml       # AWS CloudFormation template
 │   └── .dockerignore
 │
+├── .github/workflows/            # GitHub Actions Free CI/CD & Automation
+│   └── pipeline_cron.yml         # 100% free scheduled pipeline runner (every 15 min)
+│
 ├── app.py                        # Unified single-process runner (Root)
 ├── docker-compose.yml            # Multi-container root runner
+├── vercel.json                   # Vercel deployment & routing configuration
 ├── requirements.txt              # Production dependencies
 ├── requirements-dev.txt          # Test dependencies
 ├── .env.example                  # Environment configuration template
@@ -87,11 +94,30 @@ Cloud_Cost_Intelligence_System/
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start & Deployment Options
 
-You can run the system either **locally on your machine** or **fully offline in Docker with DynamoDB Local**.
+### Option A: Deploy Live Online to Vercel (100% Free Forever)
 
-### Option A: Fully Offline with Docker (Fastest — 0 AWS Setup)
+Deploy the dashboard and API live to the internet with a public HTTPS URL (`https://your-project.vercel.app`):
+
+1. **Push to GitHub**: Push this repository to your GitHub account.
+2. **Import into Vercel**:
+   - Go to [vercel.com](https://vercel.com) and click **"Add New..." → "Project"**.
+   - Select your GitHub repository.
+3. **Configure Environment Variables** in Vercel:
+   - `AWS_REGION` (e.g. `us-east-1`)
+   - `AWS_ACCESS_KEY_ID` (your AWS access key)
+   - `AWS_SECRET_ACCESS_KEY` (your AWS secret key)
+4. **Click Deploy**:
+   - Vercel automatically deploys the serverless Flask API and dashboard.
+   - Anyone visiting the live site can click **"⚡ Run Optimization Cycle"** to trigger a real-time remediation run directly from the UI!
+5. **(Optional) 100% Free Continuous Automation with GitHub Actions**:
+   - Add the same AWS secrets to your GitHub repository under **Settings → Secrets and variables → Actions**.
+   - The included workflow `.github/workflows/pipeline_cron.yml` will automatically execute `src/pipeline.py --once` every 15 minutes, feeding telemetry and optimization audits into DynamoDB continuously!
+
+---
+
+### Option B: Fully Offline with Docker (Fastest Local — 0 AWS Setup)
 
 No AWS account or credentials needed:
 
@@ -108,7 +134,7 @@ Open `http://localhost:5000` in your browser. Done!
 
 ---
 
-### Option B: Local Python Setup
+### Option C: Local Python Setup
 
 #### 1. Clone the repository
 ```bash
