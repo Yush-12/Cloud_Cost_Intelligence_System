@@ -1,617 +1,1622 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>AWS Cost Intelligence Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cloud Cost Intelligence | Autonomous FinOps & Telemetry</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  
+  <!-- Chart.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-      background: #0f1117;
-      color: #e2e8f0;
-      min-height: 100vh;
+    /* ==========================================================================
+       DESIGN SYSTEM & CSS TOKENS
+       ========================================================================== */
+    :root {
+      /* Dark Theme (Default) */
+      --bg-base: #0a0d14;
+      --bg-radial-1: rgba(37, 99, 235, 0.12);
+      --bg-radial-2: rgba(139, 92, 246, 0.08);
+      --bg-surface: rgba(16, 22, 36, 0.7);
+      --bg-card: rgba(20, 27, 45, 0.65);
+      --bg-card-hover: rgba(28, 38, 62, 0.85);
+      --bg-card-subtle: rgba(255, 255, 255, 0.03);
+      --bg-input: rgba(15, 23, 42, 0.6);
+      
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-medium: rgba(255, 255, 255, 0.15);
+      --border-accent: rgba(56, 189, 248, 0.35);
+      
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --text-inverse: #0f172a;
+
+      --accent-cyan: #38bdf8;
+      --accent-blue: #3b82f6;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-violet: #8b5cf6;
+
+      --glow-cyan: 0 0 20px rgba(56, 189, 248, 0.25);
+      --glow-emerald: 0 0 20px rgba(16, 185, 129, 0.25);
+      --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+
+      --chart-grid: rgba(255, 255, 255, 0.05);
+      --chart-text: #94a3b8;
+      --chart-tooltip-bg: rgba(15, 23, 42, 0.95);
+
+      --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    .header {
-      background: linear-gradient(135deg, #1a1f2e, #232b3e);
-      padding: 20px 32px;
-      border-bottom: 1px solid #2d3748;
+
+    [data-theme="light"] {
+      --bg-base: #f1f5f9;
+      --bg-radial-1: rgba(59, 130, 246, 0.1);
+      --bg-radial-2: rgba(147, 51, 234, 0.06);
+      --bg-surface: rgba(255, 255, 255, 0.85);
+      --bg-card: rgba(255, 255, 255, 0.95);
+      --bg-card-hover: #ffffff;
+      --bg-card-subtle: rgba(0, 0, 0, 0.02);
+      --bg-input: #ffffff;
+
+      --border-subtle: rgba(0, 0, 0, 0.08);
+      --border-medium: rgba(0, 0, 0, 0.14);
+      --border-accent: rgba(2, 132, 199, 0.4);
+
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --text-inverse: #ffffff;
+
+      --accent-cyan: #0284c7;
+      --accent-blue: #2563eb;
+      --accent-emerald: #059669;
+      --accent-amber: #d97706;
+      --accent-rose: #e11d48;
+      --accent-violet: #7c3aed;
+
+      --glow-cyan: 0 0 20px rgba(2, 132, 199, 0.2);
+      --glow-emerald: 0 0 20px rgba(5, 150, 105, 0.2);
+      --card-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+
+      --chart-grid: rgba(0, 0, 0, 0.06);
+      --chart-text: #64748b;
+      --chart-tooltip-bg: rgba(255, 255, 255, 0.98);
+    }
+
+    /* ==========================================================================
+       GLOBAL BASE
+       ========================================================================== */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-base);
+      background-image: 
+        radial-gradient(circle at 15% 10%, var(--bg-radial-1) 0%, transparent 40%),
+        radial-gradient(circle at 85% 20%, var(--bg-radial-2) 0%, transparent 45%);
+      background-attachment: fixed;
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    code, .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ==========================================================================
+       TOP NAVBAR
+       ========================================================================== */
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 14px 32px;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
-    .header h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: #63b3ed;
-    }
-    .header .status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      color: #68d391;
-    }
-    .dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: #68d391;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: auto auto;
-      gap: 20px;
-      padding: 24px;
-    }
-    .card {
-      background: #1a1f2e;
-      border: 1px solid #2d3748;
-      border-radius: 12px;
-      padding: 20px;
-    }
-    .card h2 {
-      font-size: 14px;
-      font-weight: 600;
-      color: #a0aec0;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .card.full-width { grid-column: 1 / -1; }
 
-    /* Savings Summary */
-    .savings-grid {
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: var(--glow-cyan);
+      flex-shrink: 0;
+    }
+
+    .brand-text h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-badge {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-cyan);
+      border: 1px solid var(--border-accent);
+      letter-spacing: 0.05em;
+    }
+
+    .brand-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Mode Selector (Live vs Demo) */
+    .mode-toggle-group {
+      display: flex;
+      align-items: center;
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: 30px;
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .mode-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: var(--transition-smooth);
+    }
+
+    .mode-btn.active {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .mode-btn .pulse-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px var(--accent-emerald);
+    }
+
+    /* Theme Switcher Button */
+    .theme-toggle-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+      transition: var(--transition-smooth);
+    }
+
+    .theme-toggle-btn:hover {
+      border-color: var(--border-medium);
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+
+    /* Run Optimization Button */
+    .btn-run {
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      color: #ffffff;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.35);
+      transition: var(--transition-smooth);
+    }
+
+    .btn-run:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-run:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    /* ==========================================================================
+       MAIN CONTAINER & HERO KPI SECTION
+       ========================================================================== */
+    .dashboard-content {
+      flex: 1;
+      padding: 24px 32px 48px;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Notice Banner */
+    .status-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 18px;
+      border-radius: 10px;
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid var(--border-accent);
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .status-banner strong {
+      color: var(--text-primary);
+    }
+
+    .status-banner.hidden {
+      display: none;
+    }
+
+    /* KPI Hero Grid */
+    .kpi-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 20px;
+      gap: 18px;
     }
-    .stat-box {
-      background: #232b3e;
-      border-radius: 8px;
-      padding: 16px;
-      text-align: center;
-    }
-    .stat-box .value {
-      font-size: 28px;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-    .stat-box .label {
-      font-size: 12px;
-      color: #718096;
-    }
-    .green { color: #68d391; }
-    .blue  { color: #63b3ed; }
-    .yellow{ color: #f6e05e; }
-    .red   { color: #fc8181; }
 
-    /* Anomaly Feed */
-    .anomaly-list { max-height: 320px; overflow-y: auto; }
-    .anomaly-item {
+    .kpi-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: var(--transition-smooth);
+    }
+
+    .kpi-card:hover {
+      border-color: var(--border-medium);
+      transform: translateY(-2px);
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--kpi-color, var(--accent-cyan)), transparent);
+      opacity: 0.8;
+    }
+
+    .kpi-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .kpi-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .kpi-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: var(--kpi-color, var(--accent-cyan));
+    }
+
+    .kpi-value {
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .kpi-foot {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .kpi-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 12px;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-emerald);
+    }
+
+    /* ==========================================================================
+       MIDDLE & LOWER DASHBOARD PANELS
+       ========================================================================== */
+    .panels-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 20px;
+    }
+
+    .full-width-panel {
+      grid-column: 1 / -1;
+    }
+
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .card-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 12px;
-      border-radius: 8px;
-      margin-bottom: 8px;
-      background: #232b3e;
-      border-left: 3px solid transparent;
-      font-size: 13px;
-    }
-    .anomaly-item.pending     { border-left-color: #f6e05e; }
-    .anomaly-item.actioned    { border-left-color: #68d391; }
-    .anomaly-item.skipped     { border-left-color: #718096; }
-    .badge {
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-weight: 600;
-    }
-    .badge.pending  { background: #744210; color: #f6e05e; }
-    .badge.actioned { background: #1c4532; color: #68d391; }
-    .badge.skipped  { background: #2d3748; color: #718096; }
-    .badge.cpu_spike      { background: #742a2a; color: #fc8181; }
-    .badge.idle_instance  { background: #1a365d; color: #63b3ed; }
-    .badge.cost_spike     { background: #44337a; color: #d6bcfa; }
-    .badge.runaway_function { background: #7b341e; color: #fbd38d; }
-
-    /* Optimization Log */
-    .log-list { max-height: 320px; overflow-y: auto; }
-    .log-item {
-      padding: 10px 12px;
-      border-radius: 8px;
-      margin-bottom: 8px;
-      background: #232b3e;
-      font-size: 13px;
-    }
-    .log-item .log-header {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 6px;
-    }
-    .log-item .action-name {
-      font-weight: 600;
-      color: #63b3ed;
-    }
-    .log-item .saving {
-      color: #68d391;
-      font-weight: 600;
-    }
-    .log-item .resource {
-      color: #a0aec0;
-      font-size: 12px;
-      margin-bottom: 4px;
-    }
-    .log-item .rollback {
-      font-size: 11px;
-      color: #718096;
-      font-family: monospace;
-      background: #1a1f2e;
-      padding: 4px 8px;
-      border-radius: 4px;
-      margin-top: 4px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      margin-bottom: 20px;
     }
 
-    /* Chart */
-    .chart-container { position: relative; height: 280px; }
-
-    /* Breakdown bars */
-    .breakdown { margin-top: 12px; }
-    .breakdown-row {
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-primary);
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 8px;
-      font-size: 13px;
+      letter-spacing: -0.01em;
     }
-    .breakdown-label { width: 140px; color: #a0aec0; }
-    .breakdown-bar-bg {
-      flex: 1;
-      height: 8px;
-      background: #2d3748;
+
+    .card-title-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: var(--bg-card-subtle);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .card-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-icon {
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: var(--transition-smooth);
+    }
+
+    .btn-icon:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+    }
+
+    /* Panel 1: Chart */
+    .chart-wrapper {
+      position: relative;
+      height: 310px;
+      width: 100%;
+    }
+
+    /* Panel 2: Anomaly Feed List */
+    .feed-list {
+      max-height: 310px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 4px;
+    }
+
+    .anomaly-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-left: 4px solid var(--accent-cyan);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: var(--transition-smooth);
+    }
+
+    .anomaly-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-medium);
+      transform: translateX(2px);
+    }
+
+    .anomaly-card.pending {
+      border-left-color: var(--accent-amber);
+    }
+
+    .anomaly-card.actioned {
+      border-left-color: var(--accent-emerald);
+    }
+
+    .anomaly-card.skipped {
+      border-left-color: var(--text-muted);
+    }
+
+    .anomaly-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .anomaly-tag {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .anomaly-tag.cpu_spike {
+      background: rgba(244, 63, 94, 0.15);
+      color: var(--accent-rose);
+    }
+
+    .anomaly-tag.runaway_function {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--accent-amber);
+    }
+
+    .anomaly-tag.idle_instance {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-cyan);
+    }
+
+    .anomaly-tag.cost_spike {
+      background: rgba(139, 92, 246, 0.15);
+      color: var(--accent-violet);
+    }
+
+    .anomaly-tag.unattached_ebs {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-emerald);
+    }
+
+    .confidence-meter {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .meter-bar {
+      width: 44px;
+      height: 5px;
+      background: var(--border-subtle);
       border-radius: 4px;
       overflow: hidden;
     }
-    .breakdown-bar {
-      height: 100%;
-      border-radius: 4px;
-      background: linear-gradient(90deg, #63b3ed, #68d391);
-    }
-    .breakdown-value { width: 60px; text-align: right; color: #e2e8f0; }
 
-    .refresh-note {
+    .meter-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-amber), var(--accent-emerald));
+      border-radius: 4px;
+    }
+
+    .anomaly-desc {
+      font-size: 12px;
+      color: var(--text-primary);
+      line-height: 1.4;
+    }
+
+    .anomaly-meta {
+      display: flex;
+      justify-content: space-between;
       font-size: 11px;
-      color: #4a5568;
-      text-align: right;
-      margin-top: 8px;
+      color: var(--text-muted);
     }
-    .loading {
+
+    /* Panel 3: Optimization Log Table */
+    .opt-table-container {
+      max-height: 330px;
+      overflow-y: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .opt-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      text-align: left;
+    }
+
+    .opt-table th {
+      background: var(--bg-card-subtle);
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(8px);
+    }
+
+    .opt-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+    }
+
+    .opt-table tr:hover td {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+    }
+
+    .badge-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-status.actioned {
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--accent-emerald);
+    }
+
+    .badge-status.skipped {
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text-muted);
+    }
+
+    .badge-status.failed {
+      background: rgba(244, 63, 94, 0.12);
+      color: var(--accent-rose);
+    }
+
+    .copy-btn {
+      background: var(--bg-card-subtle);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      cursor: pointer;
+      margin-left: 6px;
+      transition: var(--transition-smooth);
+    }
+
+    .copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #fff;
+      border-color: var(--accent-cyan);
+    }
+
+    /* Panel 4: Savings Breakdown Progress Bars */
+    .breakdown-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-top: 10px;
+    }
+
+    .breakdown-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 18px;
+    }
+
+    .breakdown-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 14px;
+    }
+
+    .breakdown-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .breakdown-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .breakdown-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .breakdown-bar-track {
+      height: 7px;
+      background: var(--border-subtle);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .breakdown-bar-fill {
+      height: 100%;
+      border-radius: 10px;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald));
+      transition: width 0.8s ease-in-out;
+    }
+
+    /* Loading & Empty States */
+    .loading-state {
+      padding: 48px;
       text-align: center;
-      color: #4a5568;
-      padding: 40px;
-      font-size: 14px;
+      color: var(--text-muted);
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
     }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: #1a1f2e; }
-    ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 2px; }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--border-subtle);
+      border-top-color: var(--accent-cyan);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-medium);
+      color: var(--text-primary);
+      padding: 14px 20px;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 1000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: var(--transition-smooth);
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-medium);
+      border-radius: 4px;
+    }
+
+    /* ==========================================================================
+       RESPONSIVENESS
+       ========================================================================== */
+    @media (max-width: 1200px) {
+      .kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .panels-grid {
+        grid-template-columns: 1fr;
+      }
+      .breakdown-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .navbar {
+        padding: 12px 18px;
+        flex-direction: column;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .nav-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+      .dashboard-content {
+        padding: 16px;
+      }
+      .kpi-grid {
+        grid-template-columns: 1fr;
+      }
+      .btn-run span:nth-child(2) {
+        display: none;
+      }
+    }
   </style>
 </head>
 <body>
 
-  <div class="header">
-    <div>
-      <h1>☁️ AWS Cost Intelligence System</h1>
-      <div style="font-size:12px; color:#4a5568; margin-top:4px;">
-        Telemetry pipeline · Statistical anomaly detection · Autonomous optimization
+  <!-- Top Navigation Header -->
+  <header class="navbar">
+    <div class="brand">
+      <div class="brand-logo">☁️</div>
+      <div class="brand-text">
+        <h1>
+          Cloud Cost Intelligence
+          <span class="brand-badge">FinOps AI</span>
+        </h1>
+        <div class="brand-sub">Real-Time Telemetry · Anomaly Detection · Autonomous Optimization</div>
       </div>
     </div>
-    <div class="status" style="display:flex; gap:12px; align-items:center;">
-      <button id="btnRunPipeline" onclick="runPipelineNow()" style="background:#2563eb; color:#fff; border:none; padding:7px 14px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:opacity 0.2s;">
+
+    <div class="nav-actions">
+      <!-- Live AWS vs Demo Simulation Switcher -->
+      <div class="mode-toggle-group">
+        <button id="btnModeLive" class="mode-btn active" onclick="switchDataMode('live')">
+          <span class="pulse-indicator"></span>
+          Live AWS
+        </button>
+        <button id="btnModeDemo" class="mode-btn" onclick="switchDataMode('demo')">
+          ⚡ Demo Sim
+        </button>
+      </div>
+
+      <!-- Light / Dark Mode Toggle -->
+      <button id="themeToggleBtn" class="theme-toggle-btn" onclick="toggleTheme()" title="Switch Light/Dark Mode">
+        <span id="themeIcon">🌙</span>
+      </button>
+
+      <!-- Run Optimization Action -->
+      <button id="btnRunPipeline" class="btn-run" onclick="runPipelineNow()">
         <span id="runIcon">⚡</span>
         <span id="runText">Run Optimization Cycle</span>
       </button>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <div class="dot"></div>
-        <span id="liveStatus">Live</span>
-      </div>
     </div>
+  </header>
+
+  <!-- Main Dashboard Body -->
+  <main class="dashboard-content">
+
+    <!-- Status Banner for Fallback / Notifications -->
+    <div id="statusBanner" class="status-banner">
+      <div>
+        <strong id="bannerTitle">Simulation Preview Mode:</strong>
+        <span id="bannerSubtitle">Viewing realistic telemetry. Switch to "Live AWS" anytime or click "Run Optimization Cycle" to poll your AWS account.</span>
+      </div>
+      <button class="btn-icon" style="padding: 3px 8px; font-size: 11px;" onclick="document.getElementById('statusBanner').classList.add('hidden')">Dismiss</button>
+    </div>
+
+    <!-- 4 Hero KPI Cards -->
+    <section class="kpi-grid">
+      <!-- KPI 1 -->
+      <div class="kpi-card" style="--kpi-color: var(--accent-emerald);">
+        <div class="kpi-top">
+          <span class="kpi-title">Projected Monthly Savings</span>
+          <div class="kpi-icon">💰</div>
+        </div>
+        <div class="kpi-value" id="kpiMonthlySaving">$0.00</div>
+        <div class="kpi-foot">
+          <span class="kpi-pill" id="kpiHourlyRate">+ $0.000/hr</span>
+          <span>autonomous FinOps yield</span>
+        </div>
+      </div>
+
+      <!-- KPI 2 -->
+      <div class="kpi-card" style="--kpi-color: var(--accent-amber);">
+        <div class="kpi-top">
+          <span class="kpi-title">Detected Anomalies</span>
+          <div class="kpi-icon">🚨</div>
+        </div>
+        <div class="kpi-value" id="kpiTotalAnomalies">0</div>
+        <div class="kpi-foot">
+          <span id="kpiPendingBadge" style="color: var(--accent-amber); font-weight: 600;">0 pending triage</span>
+          <span>· Isolation Forest & Z-Score</span>
+        </div>
+      </div>
+
+      <!-- KPI 3 -->
+      <div class="kpi-card" style="--kpi-color: var(--accent-cyan);">
+        <div class="kpi-top">
+          <span class="kpi-title">Autonomous Actions</span>
+          <div class="kpi-icon">⚙️</div>
+        </div>
+        <div class="kpi-value" id="kpiActionsExecuted">0</div>
+        <div class="kpi-foot">
+          <span id="kpiActionStats">0 actioned · 0 skipped</span>
+        </div>
+      </div>
+
+      <!-- KPI 4 -->
+      <div class="kpi-card" style="--kpi-color: var(--accent-violet);">
+        <div class="kpi-top">
+          <span class="kpi-title">System Status</span>
+          <div class="kpi-icon">🛡️</div>
+        </div>
+        <div class="kpi-value" style="font-size: 22px; margin-top: 6px;" id="kpiSystemHealth">Active · 100%</div>
+        <div class="kpi-foot">
+          <span id="kpiLastSync">Refreshed just now</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Mid Grid: Cost Trend (Left) + Anomaly Feed (Right) -->
+    <section class="panels-grid">
+      <!-- Panel 1: Cost Trend Chart -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span>📈 Multi-Service Billing & Cost Trend</span>
+            <span id="chartRangeBadge" class="card-title-badge">7-Day Telemetry</span>
+          </div>
+          <div class="card-actions">
+            <button class="btn-icon" onclick="fetchCostTrend()">⟳ Refresh</button>
+          </div>
+        </div>
+        <div id="costChartContainer" class="chart-wrapper">
+          <canvas id="costChartCanvas"></canvas>
+        </div>
+      </div>
+
+      <!-- Panel 2: Anomaly Feed -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span>🚨 Real-Time Anomaly Feed</span>
+            <span id="anomalyCountBadge" class="card-title-badge">0 items</span>
+          </div>
+          <div class="card-actions">
+            <button class="btn-icon" onclick="fetchAnomalies()">⟳ Refresh</button>
+          </div>
+        </div>
+        <div id="anomalyFeedList" class="feed-list">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Loading anomaly telemetry...</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Lower Grid: Optimization Audit Log -->
+    <section class="card full-width-panel">
+      <div class="card-header">
+        <div class="card-title">
+          <span>⚙️ Autonomous Optimization Audit Ledger & Rollback Controls</span>
+          <span id="logCountBadge" class="card-title-badge">0 actions</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn-icon" onclick="fetchOptimizationLog()">⟳ Refresh</button>
+        </div>
+      </div>
+      <div class="opt-table-container">
+        <table class="opt-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Action Executed</th>
+              <th>Resource ID</th>
+              <th>Target Type</th>
+              <th>Estimated Yield</th>
+              <th>Status</th>
+              <th>Safety Rollback CLI</th>
+            </tr>
+          </thead>
+          <tbody id="optLogTableBody">
+            <tr>
+              <td colspan="7" class="loading-state">
+                <div class="spinner"></div>
+                <span>Loading optimization records...</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Bottom Grid: Savings Breakdown & Model Distribution -->
+    <section class="card full-width-panel">
+      <div class="card-header">
+        <div class="card-title">
+          <span>📊 FinOps Resource Allocation & Anomaly Distribution</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn-icon" onclick="fetchSavingsSummary()">⟳ Refresh</button>
+        </div>
+      </div>
+      
+      <div class="breakdown-grid">
+        <!-- Savings by Resource Type -->
+        <div class="breakdown-card">
+          <div class="breakdown-title">Estimated Savings By AWS Resource Type</div>
+          <div id="savingsByTypeContainer">
+            <div class="loading-state" style="padding: 20px;">
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Anomalies by Type -->
+        <div class="breakdown-card">
+          <div class="breakdown-title">Anomalies Detected By Classification</div>
+          <div id="anomaliesByTypeContainer">
+            <div class="loading-state" style="padding: 20px;">
+              <div class="spinner"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toastNotification" class="toast">
+    <span id="toastIcon">ℹ️</span>
+    <span id="toastMessage">Notification message</span>
   </div>
 
-  <div class="grid">
-    <!-- Panel 1: Cost Trend -->
-    <div class="card">
-      <h2>📈 Cost Trend</h2>
-      <div id="costTrendContainer" class="chart-container">
-        <canvas id="costChart"></canvas>
-      </div>
-      <div class="refresh-note">Refreshes every 60s</div>
-    </div>
+  <!-- Dashboard JavaScript Logic -->
+  <script>
+    /* ==========================================================================
+       STATE & CONFIGURATION
+       ========================================================================== */
+    const API_BASE = (window.location.origin && window.location.origin !== "null" && window.location.protocol.startsWith("http"))
+      ? `${window.location.origin}/api`
+      : "http://localhost:5000/api";
 
-    <!-- Panel 2: Anomaly Feed -->
-    <div class="card">
-      <h2>
-        🚨 Anomaly Feed
-        <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-          <span id="pendingBadge" style="color:#fc8181; font-size:12px;"></span>
-          <button id="refreshAnomaliesBtn" style="background:#2d3748; border:none; color:#a0aec0; padding:3px 10px; border-radius:6px; cursor:pointer; font-size:11px;">⟳ Refresh</button>
-        </span>
-      </h2>
-      <div id="lastAnomalyFetch" style="font-size:11px; color:#4a5568; margin-bottom:8px;"></div>
-      <div id="anomalyList" class="anomaly-list">
-        <div class="loading">Loading anomalies...</div>
-      </div>
-      <div class="refresh-note">Refreshes every 60s</div>
-    </div>
+    let currentMode = "auto"; // "live", "demo", or "auto"
+    let chartInstance = null;
+    let autoRefreshInterval = null;
 
-    <!-- Panel 3: Optimization Log -->
-    <div class="card">
-      <h2>⚙️ Optimization Log</h2>
-      <div id="logList" class="log-list">
-        <div class="loading">Loading log...</div>
-      </div>
-      <div class="refresh-note">Refreshes every 60s</div>
-    </div>
-
-    <!-- Panel 4: Savings Summary -->
-    <div class="card full-width">
-      <h2>💰 Savings Summary</h2>
-      <div id="savingsSummaryContainer">
-        <div class="loading">Loading summary...</div>
-      </div>
-      <div class="refresh-note">Refreshes every 60s</div>
-    </div>
-  </div>
-
-<script>
-const API = (window.location.origin && window.location.origin !== "null" && window.location.protocol.startsWith("http"))
-  ? `${window.location.origin}/api`
-  : "http://localhost:5000/api";
-let costChartInstance = null;
-
-function timeAgo(ts) {
-  if (!ts) return "";
-  const diff = (Date.now() - new Date(ts)) / 1000;
-  if (diff < 60)    return `${Math.floor(diff)}s ago`;
-  if (diff < 3600)  return `${Math.floor(diff/60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
-  return `${Math.floor(diff/86400)}d ago`;
-}
-
-function escapeHtml(str) {
-  if (typeof str !== 'string') return str || '';
-  return str.replace(/[&<>"']/g, m => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  })[m]);
-}
-
-// ─── Panel 1: Cost Trend ─────────────────────────────────
-async function fetchCostTrend() {
-  try {
-    const res = await fetch(`${API}/cost-trend`);
-    if (!res.ok) throw new Error("Cost trend fetch error");
-    const data = await res.json();
-    renderCostChart(data);
-  } catch (err) {
-    document.getElementById("costTrendContainer").innerHTML =
-      '<div class="loading">No cost data available (connect dashboard_api)</div>';
-  }
-}
-
-function renderCostChart(data) {
-  const container = document.getElementById("costTrendContainer");
-  if (!data || Object.keys(data).length === 0) {
-    container.innerHTML = '<div class="loading">No cost records found</div>';
-    return;
-  }
-  container.innerHTML = '<canvas id="costChart"></canvas>';
-  const ctx = document.getElementById("costChart");
-
-  const colors = ["#63b3ed", "#68d391", "#f6e05e", "#fc8181", "#d6bcfa"];
-  const services = Object.keys(data);
-  const allTimestamps = [...new Set(services.flatMap(s => data[s].map(p => p.timestamp)))].sort();
-
-  const datasets = services.map((service, i) => {
-    const lookup = {};
-    data[service].forEach(p => { lookup[p.timestamp] = p.cost_usd; });
-    return {
-      label: service.replace("Amazon ", "").replace("AWS ", ""),
-      data: allTimestamps.map(ts => lookup[ts] ?? null),
-      borderColor: colors[i % colors.length],
-      backgroundColor: colors[i % colors.length] + "22",
-      tension: 0.4,
-      spanGaps: true,
-      pointRadius: 3
-    };
-  });
-
-  if (costChartInstance) {
-    costChartInstance.destroy();
-  }
-
-  costChartInstance = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: allTimestamps.map(ts => {
-        const d = new Date(ts);
-        return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:00`;
-      }),
-      datasets
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: "#a0aec0", font: { size: 11 } } }
-      },
-      scales: {
-        x: {
-          ticks: { color: "#718096", maxTicksLimit: 8, font: { size: 10 } },
-          grid: { color: "#2d3748" }
-        },
-        y: {
-          ticks: { color: "#718096", callback: v => `$${Number(v).toFixed(3)}` },
-          grid: { color: "#2d3748" }
-        }
+    /* ==========================================================================
+       THEME MANAGEMENT (DARK / LIGHT MODE)
+       ========================================================================== */
+    function initTheme() {
+      const savedTheme = localStorage.getItem("theme");
+      if (savedTheme) {
+        setTheme(savedTheme);
+      } else {
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        setTheme(prefersDark ? "dark" : "light");
       }
     }
-  });
-}
 
-// ─── Panel 2: Anomaly Feed ───────────────────────────────
-async function fetchAnomalies() {
-  const listEl = document.getElementById("anomalyList");
-  try {
-    const res = await fetch(`${API}/anomalies`);
-    if (!res.ok) throw new Error("Anomalies fetch error");
-    const data = await res.json();
-    renderAnomalies(data);
-    document.getElementById("lastAnomalyFetch").textContent = `Last fetched: ${new Date().toLocaleTimeString()}`;
-  } catch (err) {
-    listEl.innerHTML = '<div class="loading">No anomalies available</div>';
-  }
-}
-
-function renderAnomalies(data) {
-  const listEl = document.getElementById("anomalyList");
-  const badgeEl = document.getElementById("pendingBadge");
-
-  if (!data || data.length === 0) {
-    listEl.innerHTML = '<div class="loading">No anomalies detected yet</div>';
-    badgeEl.textContent = "";
-    return;
-  }
-
-  const pendingCount = data.filter(a => a.status === "pending").length;
-  badgeEl.textContent = pendingCount > 0 ? `${pendingCount} pending` : "";
-
-  listEl.innerHTML = data.map(a => {
-    const status = escapeHtml(a.status || 'pending');
-    const type = escapeHtml(a.anomaly_type || 'unknown');
-    const model = escapeHtml(a.model || '');
-    const conf = Math.round((Number(a.confidence) || 0) * 100);
-    const ago = timeAgo(a.timestamp);
-
-    return `
-      <div class="anomaly-item ${status}">
-        <div>
-          <span class="badge ${type}">${type.replace(/_/g, " ")}</span>
-          <span style="margin-left:8px; color:#718096; font-size:11px;">${model} · ${ago}</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:11px; color:#a0aec0;">${conf}% conf</span>
-          <span class="badge ${status}">${status}</span>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-// ─── Panel 3: Optimization Log ───────────────────────────
-async function fetchOptimizationLog() {
-  const logEl = document.getElementById("logList");
-  try {
-    const res = await fetch(`${API}/optimization-log`);
-    if (!res.ok) throw new Error("Optimization log fetch error");
-    const data = await res.json();
-    renderOptimizationLog(data);
-  } catch (err) {
-    logEl.innerHTML = '<div class="loading">No actions taken yet</div>';
-  }
-}
-
-function renderOptimizationLog(data) {
-  const logEl = document.getElementById("logList");
-  if (!data || data.length === 0) {
-    logEl.innerHTML = '<div class="loading">No actions taken yet</div>';
-    return;
-  }
-
-  logEl.innerHTML = data.map(item => {
-    const action = escapeHtml(item.action_taken || '').replace(/_/g, " ");
-    const saving = Number(item.estimated_saving_usd) || 0;
-    const savingStr = saving > 0 ? `−$${saving.toFixed(4)}/hr` : "flagged";
-    const resType = escapeHtml(item.resource_type || '');
-    const resId = escapeHtml(item.resource_id || '');
-    const resIdShort = resId.length > 30 ? resId.substring(0, 30) + '...' : resId;
-    const status = escapeHtml(item.status || '');
-    const anomType = escapeHtml(item.anomaly_type || '').replace(/_/g, " ");
-    const ago = timeAgo(item.timestamp);
-    const rollback = item.rollback_command && item.rollback_command !== "none"
-      ? `<div class="rollback">↩ ${escapeHtml(item.rollback_command)}</div>`
-      : "";
-
-    return `
-      <div class="log-item">
-        <div class="log-header">
-          <span class="action-name">${action}</span>
-          <span class="saving">${savingStr}</span>
-        </div>
-        <div class="resource">
-          ${resType} · ${resIdShort} · <span class="badge ${status}">${status}</span>
-        </div>
-        <div style="font-size:11px; color:#718096;">
-          ${anomType} · ${ago}
-        </div>
-        ${rollback}
-      </div>
-    `;
-  }).join("");
-}
-
-// ─── Panel 4: Savings Summary ────────────────────────────
-async function fetchSavingsSummary() {
-  const summaryEl = document.getElementById("savingsSummaryContainer");
-  try {
-    const res = await fetch(`${API}/savings-summary`);
-    if (!res.ok) throw new Error("Savings summary fetch error");
-    const data = await res.json();
-    renderSavingsSummary(data);
-  } catch (err) {
-    summaryEl.innerHTML = '<div class="loading">No savings data available</div>';
-  }
-}
-
-function renderSavingsSummary(data) {
-  const summaryEl = document.getElementById("savingsSummaryContainer");
-  if (!data) {
-    summaryEl.innerHTML = '<div class="loading">No data</div>';
-    return;
-  }
-
-  const hourly = (Number(data.total_saving_usd) || 0).toFixed(4);
-  const daily = (Number(data.total_saving_daily) || 0).toFixed(3);
-  const monthly = (Number(data.total_saving_monthly) || 0).toFixed(2);
-  const taken = data.actions_taken || 0;
-  const skipped = data.actions_skipped || 0;
-  const failed = data.actions_failed || 0;
-
-  const savingsByType = data.savings_by_type || {};
-  const maxSavings = Math.max(...Object.values(savingsByType), 0.0001);
-  const savingsRows = Object.entries(savingsByType).map(([k, v]) => `
-    <div class="breakdown-row">
-      <div class="breakdown-label">${escapeHtml(k)}</div>
-      <div class="breakdown-bar-bg">
-        <div class="breakdown-bar" style="width: ${(v / maxSavings) * 100}%"></div>
-      </div>
-      <div class="breakdown-value">$${Number(v).toFixed(4)}</div>
-    </div>
-  `).join("") || '<div style="font-size:12px; color:#718096;">None recorded</div>';
-
-  const anomaliesByType = data.anomalies_by_type || {};
-  const maxAnom = Math.max(...Object.values(anomaliesByType), 1);
-  const anomalyRows = Object.entries(anomaliesByType).map(([k, v]) => `
-    <div class="breakdown-row">
-      <div class="breakdown-label">${escapeHtml(k).replace(/_/g, " ")}</div>
-      <div class="breakdown-bar-bg">
-        <div class="breakdown-bar" style="width: ${(v / maxAnom) * 100}%; background: linear-gradient(90deg,#fc8181,#f6e05e);"></div>
-      </div>
-      <div class="breakdown-value">${v}</div>
-    </div>
-  `).join("") || '<div style="font-size:12px; color:#718096;">None detected</div>';
-
-  summaryEl.innerHTML = `
-    <div class="savings-grid">
-      <div class="stat-box">
-        <div class="value green">$${hourly}</div>
-        <div class="label">Saved this run ($/hr)</div>
-      </div>
-      <div class="stat-box">
-        <div class="value blue">$${daily}</div>
-        <div class="label">Projected daily saving</div>
-      </div>
-      <div class="stat-box">
-        <div class="value yellow">$${monthly}</div>
-        <div class="label">Projected monthly saving</div>
-      </div>
-      <div class="stat-box">
-        <div class="value" style="color: ${taken > 0 ? '#68d391' : '#718096'}">${taken}</div>
-        <div class="label">Actions taken · ${skipped} skipped · ${failed} failed</div>
-      </div>
-    </div>
-
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
-      <div>
-        <div style="font-size:12px; color:#718096; margin-bottom:8px;">SAVINGS BY RESOURCE TYPE</div>
-        <div class="breakdown">${savingsRows}</div>
-      </div>
-      <div>
-        <div style="font-size:12px; color:#718096; margin-bottom:8px;">ANOMALIES BY TYPE</div>
-        <div class="breakdown">${anomalyRows}</div>
-      </div>
-    </div>
-  `;
-}
-
-// ─── App Refresh Cycle ───────────────────────────────────
-async function refreshAll() {
-  document.getElementById("liveStatus").textContent = `Live · ${new Date().toLocaleTimeString()}`;
-  await Promise.all([
-    fetchCostTrend(),
-    fetchAnomalies(),
-    fetchOptimizationLog(),
-    fetchSavingsSummary()
-  ]);
-}
-
-document.getElementById("refreshAnomaliesBtn").addEventListener("click", fetchAnomalies);
-
-// Run optimization cycle on demand
-async function runPipelineNow() {
-  const btn = document.getElementById("btnRunPipeline");
-  const icon = document.getElementById("runIcon");
-  const text = document.getElementById("runText");
-  if (!btn) return;
-
-  btn.disabled = true;
-  btn.style.opacity = "0.7";
-  icon.innerText = "⏳";
-  text.innerText = "Running cycle...";
-
-  try {
-    const res = await fetch(`${API}/run-pipeline`, { method: "POST" });
-    const data = await res.json();
-    if (res.ok) {
-      text.innerText = "Cycle Complete!";
-      icon.innerText = "✅";
-      refreshAll();
-    } else {
-      text.innerText = "Error";
-      icon.innerText = "❌";
-      alert("Pipeline error: " + (data.error || data.message || "Failed to execute"));
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute("data-theme") || "dark";
+      const nextTheme = current === "dark" ? "light" : "dark";
+      setTheme(nextTheme);
     }
-  } catch (e) {
-    text.innerText = "Error";
-    icon.innerText = "❌";
-    alert("Connection error: " + e.message);
-  } finally {
-    setTimeout(() => {
-      btn.disabled = false;
-      btn.style.opacity = "1";
-      icon.innerText = "⚡";
-      text.innerText = "Run Optimization Cycle";
-    }, 3000);
-  }
-}
 
-// Initial load
-refreshAll();
+    function setTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      localStorage.setItem("theme", theme);
+      const icon = document.getElementById("themeIcon");
+      if (icon) {
+        icon.textContent = theme === "dark" ? "🌙" : "☀️";
+      }
 
-// Auto refresh every 60 seconds
-setInterval(refreshAll, 60000);
-</script>
+      // Re-render chart to adapt colors seamlessly
+      if (chartInstance && window._lastChartData) {
+        renderCostChart(window._lastChartData);
+      }
+    }
+
+    /* ==========================================================================
+       DATA MODE (LIVE AWS vs DEMO SIMULATION)
+       ========================================================================== */
+    function switchDataMode(mode) {
+      currentMode = mode;
+      document.getElementById("btnModeLive").classList.toggle("active", mode === "live");
+      document.getElementById("btnModeDemo").classList.toggle("active", mode === "demo");
+
+      const banner = document.getElementById("statusBanner");
+      const title = document.getElementById("bannerTitle");
+      const sub = document.getElementById("bannerSubtitle");
+
+      if (mode === "demo") {
+        banner.classList.remove("hidden");
+        title.textContent = "Simulation Preview Mode:";
+        sub.textContent = "Viewing realistic multi-day AWS telemetry. Click 'Run Optimization Cycle' or switch to 'Live AWS' for direct account queries.";
+        showToast("Switched to Simulation Preview Mode", "⚡");
+      } else {
+        banner.classList.remove("hidden");
+        title.textContent = "Live AWS Mode Active:";
+        sub.textContent = "Connecting directly to DynamoDB tables. If empty, click 'Run Optimization Cycle' to collect real-time data.";
+        showToast("Switched to Live AWS Mode", "🟢");
+      }
+
+      refreshAll();
+    }
+
+    /* ==========================================================================
+       UTILITY HELPERS
+       ========================================================================== */
+    function formatMoney(val, decimals = 2) {
+      const num = Number(val) || 0;
+      return `$${num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+    }
+
+    function timeAgo(ts) {
+      if (!ts) return "recently";
+      const diff = (Date.now() - new Date(ts).getTime()) / 1000;
+      if (diff < 60) return `${Math.max(1, Math.floor(diff))}s ago`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[m]);
+    }
+
+    function showToast(msg, icon = "ℹ️") {
+      const toast = document.getElementById("toastNotification");
+      document.getElementById("toastIcon").textContent = icon;
+      document.getElementById("toastMessage").textContent = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 3500);
+    }
+
+    function copyToClipboard(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const old = btn.textContent;
+        btn.textContent = "✓ Copied";
+        setTimeout(() => btn.textContent = old, 1800);
+        showToast("Copied rollback command to clipboard", "📋");
+      }).catch(() => {
+        prompt("Copy command:", text);
+      });
+    }
+
+    /* ==========================================================================
+       PANEL 1: COST TREND CHART (Chart.js)
+       ========================================================================== */
+    async function fetchCostTrend() {
+      try {
+        const res = await fetch(`${API_BASE}/cost-trend?mode=${currentMode}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        window._lastChartData = data;
+        renderCostChart(data);
+      } catch (err) {
+        console.error("fetchCostTrend error:", err);
+        document.getElementById("costChartContainer").innerHTML = `
+          <div class="loading-state">
+            <span>Unable to load cost telemetry. Click refresh to retry.</span>
+          </div>
+        `;
+      }
+    }
+
+    function renderCostChart(data) {
+      const container = document.getElementById("costChartContainer");
+      if (!data || Object.keys(data).length === 0) {
+        container.innerHTML = `
+          <div class="loading-state">
+            <span>No billing records found in DynamoDB yet. Click 'Run Optimization Cycle' to collect data.</span>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = '<canvas id="costChartCanvas"></canvas>';
+      const ctx = document.getElementById("costChartCanvas").getContext("2d");
+
+      const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+      const gridColor = isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.06)";
+      const textColor = isDark ? "#94a3b8" : "#64748b";
+
+      const palette = [
+        { stroke: "#38bdf8", fill: "rgba(56, 189, 248, 0.15)" },
+        { stroke: "#10b981", fill: "rgba(16, 185, 129, 0.12)" },
+        { stroke: "#f59e0b", fill: "rgba(245, 158, 11, 0.12)" },
+        { stroke: "#8b5cf6", fill: "rgba(139, 92, 246, 0.12)" },
+        { stroke: "#f43f5e", fill: "rgba(244, 63, 94, 0.12)" }
+      ];
+
+      const services = Object.keys(data);
+      const allTimestamps = [...new Set(services.flatMap(s => (data[s] || []).map(p => p.timestamp)))].sort();
+
+      const datasets = services.map((service, idx) => {
+        const lookup = {};
+        (data[service] || []).forEach(p => { lookup[p.timestamp] = p.cost_usd; });
+        const colors = palette[idx % palette.length];
+
+        return {
+          label: service.replace("Amazon ", "").replace("AWS ", ""),
+          data: allTimestamps.map(ts => lookup[ts] ?? null),
+          borderColor: colors.stroke,
+          backgroundColor: colors.fill,
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+          tension: 0.35,
+          fill: true,
+          spanGaps: true
+        };
+      });
+
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: allTimestamps.map(ts => {
+            const d = new Date(ts);
+            return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:00`;
+          }),
+          datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          plugins: {
+            legend: {
+              position: 'top',
+              align: 'end',
+              labels: {
+                color: textColor,
+                boxWidth: 10,
+                boxHeight: 10,
+                usePointStyle: true,
+                font: { size: 11, family: "'Inter', sans-serif" }
+              }
+            },
+            tooltip: {
+              backgroundColor: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              titleColor: isDark ? '#f8fafc' : '#0f172a',
+              bodyColor: isDark ? '#cbd5e1' : '#334155',
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+              borderWidth: 1,
+              padding: 10,
+              boxPadding: 4,
+              callbacks: {
+                label: ctx => ` ${ctx.dataset.label}: $${Number(ctx.parsed.y).toFixed(4)}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: gridColor },
+              ticks: { color: textColor, maxTicksLimit: 7, font: { size: 10 } }
+            },
+            y: {
+              grid: { color: gridColor },
+              ticks: {
+                color: textColor,
+                callback: val => `$${Number(val).toFixed(2)}`,
+                font: { size: 10 }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    /* ==========================================================================
+       PANEL 2: ANOMALIES FEED
+       ========================================================================== */
+    async function fetchAnomalies() {
+      const listEl = document.getElementById("anomalyFeedList");
+      try {
+        const res = await fetch(`${API_BASE}/anomalies?mode=${currentMode}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderAnomalies(data);
+      } catch (err) {
+        console.error("fetchAnomalies error:", err);
+        listEl.innerHTML = `
+          <div class="loading-state">
+            <span>Unable to retrieve anomalies.</span>
+          </div>
+        `;
+      }
+    }
+
+    function renderAnomalies(items) {
+      const listEl = document.getElementById("anomalyFeedList");
+      const badge = document.getElementById("anomalyCountBadge");
+      const kpiTotal = document.getElementById("kpiTotalAnomalies");
+      const kpiPending = document.getElementById("kpiPendingBadge");
+
+      if (!items || items.length === 0) {
+        listEl.innerHTML = `
+          <div class="loading-state">
+            <span>No anomalies detected. Cost patterns within nominal statistical limits.</span>
+          </div>
+        `;
+        badge.textContent = "0 items";
+        kpiTotal.textContent = "0";
+        kpiPending.textContent = "0 pending triage";
+        return;
+      }
+
+      badge.textContent = `${items.length} items`;
+      kpiTotal.textContent = items.length;
+
+      const pendingCount = items.filter(a => a.status === "pending").length;
+      kpiPending.textContent = `${pendingCount} pending triage`;
+
+      listEl.innerHTML = items.map(a => {
+        const status = escapeHtml(a.status || 'pending');
+        const type = escapeHtml(a.anomaly_type || 'cpu_spike');
+        const confPct = Math.round((Number(a.confidence) || 0) * 100);
+        const resource = escapeHtml(a.resource_id || 'AWS Resource');
+        const details = escapeHtml(a.details || `${type.replace(/_/g, ' ')} detected on ${resource}`);
+        const ago = timeAgo(a.timestamp);
+
+        return `
+          <div class="anomaly-card ${status}">
+            <div class="anomaly-head">
+              <span class="anomaly-tag ${type}">${type.replace(/_/g, ' ')}</span>
+              <div class="confidence-meter" title="${confPct}% confidence score">
+                <span>${confPct}%</span>
+                <div class="meter-bar">
+                  <div class="meter-fill" style="width: ${confPct}%;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="anomaly-desc">
+              <strong>${resource}</strong>: ${details}
+            </div>
+            <div class="anomaly-meta">
+              <span>Model: <code style="font-size:10px;">${escapeHtml(a.model || 'statistical')}</code></span>
+              <span>${ago} · <span class="badge-status ${status}">${status}</span></span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    /* ==========================================================================
+       PANEL 3: OPTIMIZATION AUDIT LOG
+       ========================================================================== */
+    async function fetchOptimizationLog() {
+      const tableBody = document.getElementById("optLogTableBody");
+      try {
+        const res = await fetch(`${API_BASE}/optimization-log?mode=${currentMode}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderOptimizationLog(data);
+      } catch (err) {
+        console.error("fetchOptimizationLog error:", err);
+        tableBody.innerHTML = `
+          <tr>
+            <td colspan="7" class="loading-state">
+              <span>Unable to load optimization history.</span>
+            </td>
+          </tr>
+        `;
+      }
+    }
+
+    function renderOptimizationLog(items) {
+      const tableBody = document.getElementById("optLogTableBody");
+      const badge = document.getElementById("logCountBadge");
+      const kpiActions = document.getElementById("kpiActionsExecuted");
+      const kpiStats = document.getElementById("kpiActionStats");
+
+      if (!items || items.length === 0) {
+        tableBody.innerHTML = `
+          <tr>
+            <td colspan="7" class="loading-state">
+              <span>No autonomous actions executed yet.</span>
+            </td>
+          </tr>
+        `;
+        badge.textContent = "0 actions";
+        kpiActions.textContent = "0";
+        kpiStats.textContent = "0 actioned · 0 skipped";
+        return;
+      }
+
+      badge.textContent = `${items.length} records`;
+      const actioned = items.filter(i => i.status === "actioned").length;
+      const skipped = items.filter(i => i.status === "skipped").length;
+
+      kpiActions.textContent = actioned;
+      kpiStats.textContent = `${actioned} actioned · ${skipped} skipped`;
+
+      tableBody.innerHTML = items.map(item => {
+        const action = escapeHtml(item.action_taken || '').replace(/_/g, ' ');
+        const resId = escapeHtml(item.resource_id || '');
+        const resType = escapeHtml(item.resource_type || '');
+        const saving = Number(item.estimated_saving_usd) || 0;
+        const savingStr = saving > 0 ? `+${formatMoney(saving, 4)}/hr` : "Guarded";
+        const status = escapeHtml(item.status || 'actioned');
+        const ago = timeAgo(item.timestamp);
+        const rollbackCmd = item.rollback_command || "none";
+
+        const rollbackHtml = (rollbackCmd !== "none" && rollbackCmd !== "")
+          ? `
+            <div style="display:flex; align-items:center;">
+              <code style="font-size:11px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(rollbackCmd)}</code>
+              <button class="copy-btn" onclick="copyToClipboard('${escapeHtml(rollbackCmd).replace(/'/g, "\\'")}', this)">Copy</button>
+            </div>
+          `
+          : `<span style="color:var(--text-muted); font-size:11px;">Not needed</span>`;
+
+        return `
+          <tr>
+            <td><span style="font-size:11px; color:var(--text-muted);">${ago}</span></td>
+            <td><strong style="color:var(--text-primary);">${action}</strong></td>
+            <td><code>${resId}</code></td>
+            <td>${resType}</td>
+            <td><span style="color:var(--accent-emerald); font-weight:600;">${savingStr}</span></td>
+            <td><span class="badge-status ${status}">${status}</span></td>
+            <td>${rollbackHtml}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    /* ==========================================================================
+       PANEL 4: SAVINGS SUMMARY & BREAKDOWNS
+       ========================================================================== */
+    async function fetchSavingsSummary() {
+      try {
+        const res = await fetch(`${API_BASE}/savings-summary?mode=${currentMode}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderSavingsSummary(data);
+      } catch (err) {
+        console.error("fetchSavingsSummary error:", err);
+      }
+    }
+
+    function renderSavingsSummary(data) {
+      if (!data) return;
+
+      const monthly = Number(data.total_saving_monthly) || 0;
+      const hourly = Number(data.total_saving_usd) || 0;
+
+      document.getElementById("kpiMonthlySaving").textContent = formatMoney(monthly, 2);
+      document.getElementById("kpiHourlyRate").textContent = `+ ${formatMoney(hourly, 4)}/hr`;
+
+      // Breakdown by Service
+      const byType = data.savings_by_type || {};
+      const typeContainer = document.getElementById("savingsByTypeContainer");
+      const typeEntries = Object.entries(byType);
+      const maxVal = Math.max(...Object.values(byType), 0.001);
+
+      if (typeEntries.length === 0) {
+        typeContainer.innerHTML = `<div style="font-size:12px; color:var(--text-muted);">No yield recorded yet</div>`;
+      } else {
+        typeContainer.innerHTML = typeEntries.map(([svc, val]) => {
+          const pct = Math.round((val / maxVal) * 100);
+          return `
+            <div class="breakdown-item">
+              <div class="breakdown-info">
+                <span>${escapeHtml(svc)}</span>
+                <span style="color:var(--accent-emerald); font-weight:600;">+${formatMoney(val, 4)}/hr</span>
+              </div>
+              <div class="breakdown-bar-track">
+                <div class="breakdown-bar-fill" style="width: ${pct}%;"></div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      // Breakdown by Anomaly Classification
+      const byAnom = data.anomalies_by_type || {};
+      const anomContainer = document.getElementById("anomaliesByTypeContainer");
+      const anomEntries = Object.entries(byAnom);
+      const maxAnom = Math.max(...Object.values(byAnom), 1);
+
+      if (anomEntries.length === 0) {
+        anomContainer.innerHTML = `<div style="font-size:12px; color:var(--text-muted);">No anomalies recorded</div>`;
+      } else {
+        anomContainer.innerHTML = anomEntries.map(([atype, count]) => {
+          const pct = Math.round((count / maxAnom) * 100);
+          return `
+            <div class="breakdown-item">
+              <div class="breakdown-info">
+                <span>${escapeHtml(atype).replace(/_/g, ' ')}</span>
+                <span style="font-weight:600;">${count} events</span>
+              </div>
+              <div class="breakdown-bar-track">
+                <div class="breakdown-bar-fill" style="width: ${pct}%; background: linear-gradient(90deg, var(--accent-rose), var(--accent-amber));"></div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    /* ==========================================================================
+       PIPELINE ON-DEMAND EXECUTION
+       ========================================================================== */
+    async function runPipelineNow() {
+      const btn = document.getElementById("btnRunPipeline");
+      const icon = document.getElementById("runIcon");
+      const text = document.getElementById("runText");
+      if (!btn) return;
+
+      btn.disabled = true;
+      icon.textContent = "⏳";
+      text.textContent = "Executing cycle...";
+      showToast("Triggering telemetry collection & anomaly detector...", "⚙️");
+
+      try {
+        const res = await fetch(`${API_BASE}/run-pipeline`, { method: "POST" });
+        const data = await res.json();
+
+        if (res.ok) {
+          icon.textContent = "✅";
+          text.textContent = "Cycle Complete!";
+          showToast("Pipeline cycle finished successfully! Telemetry updated.", "✅");
+          refreshAll();
+        } else {
+          icon.textContent = "❌";
+          text.textContent = "Execution Failed";
+          showToast(`Pipeline execution note: ${data.message || data.error || 'Check logs'}`, "⚠️");
+        }
+      } catch (err) {
+        console.error("runPipeline error:", err);
+        icon.textContent = "❌";
+        text.textContent = "Connection Error";
+        showToast(`Could not connect: ${err.message}`, "❌");
+      } finally {
+        setTimeout(() => {
+          btn.disabled = false;
+          icon.textContent = "⚡";
+          text.textContent = "Run Optimization Cycle";
+        }, 4000);
+      }
+    }
+
+    /* ==========================================================================
+       REFRESH CYCLE & LIFECYCLE
+       ========================================================================== */
+    async function refreshAll() {
+      const syncEl = document.getElementById("kpiLastSync");
+      if (syncEl) syncEl.textContent = `Sync: ${new Date().toLocaleTimeString()}`;
+
+      await Promise.allSettled([
+        fetchCostTrend(),
+        fetchAnomalies(),
+        fetchOptimizationLog(),
+        fetchSavingsSummary()
+      ]);
+    }
+
+    // Startup
+    initTheme();
+    refreshAll();
+
+    // Auto-refresh every 60 seconds
+    if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    autoRefreshInterval = setInterval(refreshAll, 60000);
+  </script>
 </body>
 </html>
