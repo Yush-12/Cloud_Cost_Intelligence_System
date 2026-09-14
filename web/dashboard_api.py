@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.db_utils import scan_all, safe_float, safe_int
-from src.aws_clients import get_table
+from src.aws_clients import get_table, is_simulation_mode
+from src.synthetic_data import seed_historical_data
 
 load_dotenv()
 
@@ -22,6 +23,15 @@ logging.basicConfig(
     datefmt="%H:%M:%S"
 )
 logger = logging.getLogger("dashboard_api")
+
+# Pre-seed in-memory store if in simulation mode
+if is_simulation_mode():
+    try:
+        seed_historical_data()
+        logger.info("Simulation mode active: In-memory store pre-seeded with baseline telemetry.")
+    except Exception as e:
+        logger.warning(f"Could not pre-seed simulation store: {e}")
+
 
 app = Flask(__name__)
 
@@ -481,9 +491,11 @@ def health():
     return jsonify({
         "status": "ok",
         "service": "Cloud Cost Intelligence API",
-        "region": os.getenv("AWS_REGION", "ap-south-1"),
+        "region": os.getenv("AWS_REGION", "us-east-1"),
+        "simulation_mode": is_simulation_mode(),
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
+
 
 
 if __name__ == "__main__":

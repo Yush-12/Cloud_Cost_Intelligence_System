@@ -105,19 +105,24 @@ Deploy the dashboard and API live to the internet with a public HTTPS URL (`http
    - Go to [vercel.com](https://vercel.com) and click **"Add New..." → "Project"**.
    - Select your GitHub repository.
 3. **Configure Environment Variables** in Vercel:
-   - `AWS_REGION` (e.g. `us-east-1`)
-   - `AWS_ACCESS_KEY_ID` (your AWS access key)
-   - `AWS_SECRET_ACCESS_KEY` (your AWS secret key)
+   - `SIMULATION_MODE` = `true` (Default: runs 100% free with rich synthetic data, $0 AWS cost, no AWS credentials needed!)
+   - *(Optional for real AWS)*: Set `SIMULATION_MODE` = `false` and provide `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION`.
 4. **Click Deploy**:
    - Vercel automatically deploys the serverless Flask API and dashboard.
-   - Anyone visiting the live site can click **"⚡ Run Optimization Cycle"** to trigger a real-time remediation run directly from the UI!
-5. **(Optional) 100% Free Continuous Automation with GitHub Actions**:
-   - Add the same AWS secrets to your GitHub repository under **Settings → Secrets and variables → Actions**.
-   - The included workflow `.github/workflows/pipeline_cron.yml` will automatically execute `src/pipeline.py --once` every 15 minutes, feeding telemetry and optimization audits into DynamoDB continuously!
+   - Anyone visiting the live site can click **"⚡ Run Optimization Cycle"** to trigger real-time statistical anomaly detection and remediation runs!
+5. **(Optional) Free Scheduled Automation with GitHub Actions**:
+   - The included workflow `.github/workflows/pipeline_cron.yml` automatically executes `src/pipeline.py --once` on a schedule, running the simulation cycle and logging actions.
 
 ---
 
-### Option B: Fully Offline with Docker (Fastest Local — 0 AWS Setup)
+### Option B: Fully Offline Local Run (Zero AWS Setup)
+
+Run the entire system locally with one command:
+```bash
+python app.py
+```
+Visit `http://localhost:5000` to interact with the dashboard!
+
 
 No AWS account or credentials needed:
 

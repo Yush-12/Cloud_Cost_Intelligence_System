@@ -45,11 +45,13 @@ from src.rollback import rollback_audit_actions
 @pytest.fixture(autouse=True)
 def aws_env(monkeypatch):
     """Set test environment variables for every test."""
+    monkeypatch.setenv("SIMULATION_MODE", "false")
     monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
     monkeypatch.setenv("DYNAMODB_TABLE", "CostTelemetry")
     monkeypatch.setenv("ANOMALY_TABLE", "AnomalyEvents")
     monkeypatch.setenv("AUDIT_TABLE", "OptimizationAudit")
+
 
 
 @pytest.fixture
