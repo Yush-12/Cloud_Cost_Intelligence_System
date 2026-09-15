@@ -39,8 +39,7 @@ from web.dashboard_api import app as flask_app
 
 @pytest.fixture(autouse=True)
 def simulation_env(monkeypatch):
-    """Ensure simulation mode is enabled for this test suite."""
-    monkeypatch.setenv("SIMULATION_MODE", "true")
+    """Ensure simulation environment is initialized for this test suite."""
     monkeypatch.setenv("AWS_REGION", "us-east-1")
     monkeypatch.setenv("DYNAMODB_TABLE", "CostTelemetry")
     monkeypatch.setenv("ANOMALY_TABLE", "AnomalyEvents")

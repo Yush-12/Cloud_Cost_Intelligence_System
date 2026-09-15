@@ -5,7 +5,6 @@ import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
-from botocore.exceptions import ClientError
 
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -35,7 +34,7 @@ def rollback_audit_actions(dry_run=False):
     try:
         audit_table = get_table(AUDIT_TABLE_NAME)
         items = scan_all(audit_table, Attr("status").eq("actioned"))
-    except ClientError as e:
+    except Exception as e:
         logger.error(f"Failed to access '{AUDIT_TABLE_NAME}': {e}")
         return
 
@@ -99,7 +98,7 @@ def rollback_audit_actions(dry_run=False):
                 )
                 logger.info(f"  Status updated to 'rolled_back' for {action_id}")
 
-        except ClientError as e:
+        except Exception as e:
             logger.error(f"  ❌ Error rolling back action {action_id}: {e}")
 
     logger.info("\nAudit-based rollback completed.")
@@ -128,7 +127,7 @@ def rollback_all_resources(dry_run=False):
                 logger.info("[DRY RUN] Would restart these instances.")
         else:
             logger.info("No stopped EC2 instances found.")
-    except ClientError as e:
+    except Exception as e:
         logger.error(f"Error checking/starting EC2 instances: {e}")
 
     # Remove all Lambda concurrency caps
@@ -143,10 +142,9 @@ def rollback_all_resources(dry_run=False):
                 try:
                     lambda_client.delete_function_concurrency(FunctionName=name)
                     logger.info(f"✅ Removed concurrency cap from Lambda: {name}")
-                except ClientError as e:
-                    if e.response["Error"]["Code"] != "ResourceNotFoundException":
-                        logger.warning(f"Note for {name}: {e}")
-    except ClientError as e:
+                except Exception as e:
+                    logger.warning(f"Note for {name}: {e}")
+    except Exception as e:
         logger.error(f"Error checking/modifying Lambda functions: {e}")
 
     logger.info("Account-wide rollback completed.")

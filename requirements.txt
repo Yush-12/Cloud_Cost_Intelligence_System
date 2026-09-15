@@ -1,4 +1,4 @@
-# AWS SDK
+# DynamoDB condition expressions (Attr, Equals, And, Or)
 boto3==1.35.0
 
 # Web framework (dashboard API)

@@ -2,7 +2,7 @@ name: Scheduled Cost Telemetry Pipeline
 
 on:
   schedule:
-    # Run every 15 minutes (100% free with GitHub Actions)
+    # Run every 15 minutes (FinOps Simulation Engine)
     - cron: '*/15 * * * *'
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
@@ -26,13 +26,6 @@ jobs:
 
       - name: Execute Pipeline Cycle
         env:
-          SIMULATION_MODE: "true"
           AWS_REGION: "us-east-1"
-          # To run against real AWS instead of simulation mode, set SIMULATION_MODE: "false"
-          # and add AWS_ACCESS_KEY_ID & AWS_SECRET_ACCESS_KEY in GitHub Repo Settings -> Secrets
-          # AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          # AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           python src/pipeline.py --once
-
-

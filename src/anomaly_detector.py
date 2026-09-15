@@ -6,7 +6,6 @@ from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
-from botocore.exceptions import ClientError
 
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -52,14 +51,8 @@ def fetch_metrics(metric_type="utilization", resource_id=None):
         items = scan_all(table, filter_expr)
         logger.info(f"Fetched {len(items)} {metric_type} records")
         return items
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            logger.error(
-                f"DynamoDB table '{TABLE_NAME}' does not exist! "
-                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
-            )
-        else:
-            logger.error(f"Failed to fetch metrics: {e}")
+    except Exception as e:
+        logger.error(f"Failed to fetch metrics: {e}")
         return []
 
 
@@ -200,16 +193,9 @@ def save_anomalies(anomalies):
     try:
         anomaly_table = get_table(ANOMALY_TABLE_NAME)
         anomaly_table.load()
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            logger.error(
-                f"DynamoDB table '{ANOMALY_TABLE_NAME}' does not exist! "
-                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
-            )
-            return 0
-        else:
-            logger.error(f"Error accessing table '{ANOMALY_TABLE_NAME}': {e}")
-            return 0
+    except Exception as e:
+        logger.error(f"Error accessing table '{ANOMALY_TABLE_NAME}': {e}")
+        return 0
 
     saved = 0
     now_str = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')
@@ -226,7 +212,7 @@ def save_anomalies(anomalies):
                     "action_taken": "none"
                 })
                 saved += 1
-            except ClientError as e:
+            except Exception as e:
                 logger.error(f"Failed to write anomaly to '{ANOMALY_TABLE_NAME}': {e}")
 
     logger.info(f"Saved {saved} high-confidence anomalies (threshold >= {CONFIDENCE_THRESHOLD}) to '{ANOMALY_TABLE_NAME}'")

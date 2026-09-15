@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
-from botocore.exceptions import ClientError
 
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -76,14 +75,8 @@ def collect_billing_metrics():
                 "cost_usd": str(record["cost_usd"])
             })
         logger.info(f"Written {len(records)} billing records to DynamoDB table '{TABLE_NAME}'")
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            logger.error(
-                f"DynamoDB table '{TABLE_NAME}' does not exist! "
-                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
-            )
-        else:
-            logger.error(f"Error writing billing metrics: {e}")
+    except Exception as e:
+        logger.error(f"Error writing billing metrics: {e}")
 
 
 # ─────────────────────────────────────────
@@ -102,7 +95,7 @@ def collect_utilization_metrics(instances=None):
             instances = [i for r in response["Reservations"] for i in r["Instances"]]
         else:
             instances = [i for i in instances if i.get("State", {}).get("Name") == "running"]
-    except ClientError as e:
+    except Exception as e:
         logger.error(f"Failed to describe EC2 instances: {e}")
         return
 
@@ -138,12 +131,8 @@ def collect_utilization_metrics(instances=None):
                 "cpu_utilization": str(round(cpu_value, 4))
             })
             logger.info(f"EC2 {instance_id}: CPU {round(cpu_value, 2)}%")
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "ResourceNotFoundException":
-                logger.error(f"DynamoDB table '{TABLE_NAME}' does not exist! Run 'python scripts/setup_aws.py'.")
-                break
-            else:
-                logger.error(f"Error collecting metrics for instance {instance_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error collecting metrics for instance {instance_id}: {e}")
 
 
 # ─────────────────────────────────────────
@@ -173,10 +162,7 @@ def collect_resource_inventory(instances=None):
                 "state": instance["State"]["Name"],
                 "instance_type": instance["InstanceType"]
             })
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
-            logger.error(f"DynamoDB table '{TABLE_NAME}' does not exist! Run 'python scripts/setup_aws.py'.")
-            return []
+    except Exception as e:
         logger.error(f"Error collecting EC2 inventory: {e}")
         instances = []
 
@@ -193,7 +179,7 @@ def collect_resource_inventory(instances=None):
                 "state": "active",
                 "instance_type": func.get("Runtime", "unknown")
             })
-    except ClientError as e:
+    except Exception as e:
         logger.error(f"Error collecting Lambda inventory: {e}")
 
     # S3 buckets
@@ -209,7 +195,7 @@ def collect_resource_inventory(instances=None):
                 "state": "active",
                 "instance_type": "bucket"
             })
-    except ClientError as e:
+    except Exception as e:
         logger.error(f"Error collecting S3 inventory: {e}")
 
     logger.info("Inventory snapshot written to DynamoDB")

@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
-from botocore.exceptions import ClientError
 
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -35,10 +34,7 @@ def generate_training_data(days=5):
     try:
         table = get_table(TABLE_NAME)
         table.load()
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            logger.error(f"Table '{TABLE_NAME}' does not exist! Run 'python scripts/setup_aws.py' first.")
-            return 0
+    except Exception as e:
         logger.error(f"Error accessing table '{TABLE_NAME}': {e}")
         return 0
 

@@ -5,14 +5,13 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from flask import Flask, jsonify, send_file, request
 from boto3.dynamodb.conditions import Attr
-from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.db_utils import scan_all, safe_float, safe_int
-from src.aws_clients import get_table, is_simulation_mode
+from src.aws_clients import get_table
 from src.synthetic_data import seed_historical_data
 
 load_dotenv()
@@ -24,13 +23,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("dashboard_api")
 
-# Pre-seed in-memory store if in simulation mode
-if is_simulation_mode():
-    try:
-        seed_historical_data()
-        logger.info("Simulation mode active: In-memory store pre-seeded with baseline telemetry.")
-    except Exception as e:
-        logger.warning(f"Could not pre-seed simulation store: {e}")
+# Pre-seed in-memory store with baseline telemetry
+try:
+    seed_historical_data()
+    logger.info("FinOps simulation active: In-memory store pre-seeded with baseline telemetry.")
+except Exception as e:
+    logger.warning(f"Could not pre-seed simulation store: {e}")
 
 
 app = Flask(__name__)
@@ -52,7 +50,7 @@ def add_cors_headers(response):
 
 
 # ─────────────────────────────────────────
-# DEMO DATA GENERATORS (Portfolio & Preview)
+# DEMO DATA GENERATORS (Portfolio & Fallback)
 # ─────────────────────────────────────────
 def generate_demo_cost_trend():
     """Generates 7 days of realistic time-series billing data across core AWS services."""
@@ -297,33 +295,26 @@ def trigger_pipeline():
 # ─────────────────────────────────────────
 @app.route("/api/cost-trend")
 def cost_trend():
-    mode = request.args.get("mode", "auto").lower()
-    
-    if mode != "demo":
-        try:
-            cost_table = get_table(COST_TABLE_NAME)
-            items = scan_all(cost_table, Attr("metric_type").eq("billing"))
-            if items:
-                grouped = {}
-                for item in items:
-                    service = item.get("service", "Unknown")
-                    if service not in grouped:
-                        grouped[service] = []
-                    grouped[service].append({
-                        "timestamp": item.get("timestamp", ""),
-                        "cost_usd": safe_float(item.get("cost_usd"), 0.0)
-                    })
-                for service in grouped:
-                    grouped[service].sort(key=lambda x: x["timestamp"])
-                return jsonify(grouped)
-            elif mode == "live":
-                return jsonify({})
-        except Exception as e:
-            logger.warning(f"Live cost-trend query exception: {e}")
-            if mode == "live":
-                return jsonify({"error": str(e)}), 200
+    try:
+        cost_table = get_table(COST_TABLE_NAME)
+        items = scan_all(cost_table, Attr("metric_type").eq("billing"))
+        if items:
+            grouped = {}
+            for item in items:
+                service = item.get("service", "Unknown")
+                if service not in grouped:
+                    grouped[service] = []
+                grouped[service].append({
+                    "timestamp": item.get("timestamp", ""),
+                    "cost_usd": safe_float(item.get("cost_usd"), 0.0)
+                })
+            for service in grouped:
+                grouped[service].sort(key=lambda x: x["timestamp"])
+            return jsonify(grouped)
+    except Exception as e:
+        logger.warning(f"Cost-trend query exception: {e}")
 
-    # Auto fallback or demo requested
+    # Fallback to generated demo data if store is empty
     return jsonify(generate_demo_cost_trend())
 
 
@@ -332,33 +323,26 @@ def cost_trend():
 # ─────────────────────────────────────────
 @app.route("/api/anomalies")
 def anomalies():
-    mode = request.args.get("mode", "auto").lower()
-
-    if mode != "demo":
-        try:
-            anomaly_table = get_table(ANOMALY_TABLE_NAME)
-            items = scan_all(anomaly_table)
-            if items:
-                items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-                result = []
-                for item in items:
-                    result.append({
-                        "anomaly_id":   item.get("anomaly_id", ""),
-                        "timestamp":    item.get("timestamp", ""),
-                        "anomaly_type": item.get("anomaly_type", ""),
-                        "model":        item.get("model", ""),
-                        "confidence":   safe_float(item.get("confidence"), 0.0),
-                        "status":       item.get("status", "pending"),
-                        "resource_id":  item.get("resource_id", ""),
-                        "details":      item.get("details", "")
-                    })
-                return jsonify(result)
-            elif mode == "live":
-                return jsonify([])
-        except Exception as e:
-            logger.warning(f"Live anomalies query exception: {e}")
-            if mode == "live":
-                return jsonify([]), 200
+    try:
+        anomaly_table = get_table(ANOMALY_TABLE_NAME)
+        items = scan_all(anomaly_table)
+        if items:
+            items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            result = []
+            for item in items:
+                result.append({
+                    "anomaly_id":   item.get("anomaly_id", ""),
+                    "timestamp":    item.get("timestamp", ""),
+                    "anomaly_type": item.get("anomaly_type", ""),
+                    "model":        item.get("model", ""),
+                    "confidence":   safe_float(item.get("confidence"), 0.0),
+                    "status":       item.get("status", "pending"),
+                    "resource_id":  item.get("resource_id", ""),
+                    "details":      item.get("details", "")
+                })
+            return jsonify(result)
+    except Exception as e:
+        logger.warning(f"Anomalies query exception: {e}")
 
     return jsonify(generate_demo_anomalies())
 
@@ -368,34 +352,27 @@ def anomalies():
 # ─────────────────────────────────────────
 @app.route("/api/optimization-log")
 def optimization_log():
-    mode = request.args.get("mode", "auto").lower()
-
-    if mode != "demo":
-        try:
-            audit_table = get_table(AUDIT_TABLE_NAME)
-            items = scan_all(audit_table)
-            if items:
-                items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-                result = []
-                for item in items:
-                    result.append({
-                        "action_id":            item.get("action_id", ""),
-                        "timestamp":            item.get("timestamp", ""),
-                        "anomaly_type":         item.get("anomaly_type", ""),
-                        "action_taken":         item.get("action_taken", ""),
-                        "resource_id":          item.get("resource_id", ""),
-                        "resource_type":        item.get("resource_type", ""),
-                        "status":               item.get("status", ""),
-                        "estimated_saving_usd": safe_float(item.get("estimated_saving_usd"), 0.0),
-                        "rollback_command":     item.get("rollback_command", "")
-                    })
-                return jsonify(result)
-            elif mode == "live":
-                return jsonify([])
-        except Exception as e:
-            logger.warning(f"Live optimization-log query exception: {e}")
-            if mode == "live":
-                return jsonify([]), 200
+    try:
+        audit_table = get_table(AUDIT_TABLE_NAME)
+        items = scan_all(audit_table)
+        if items:
+            items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            result = []
+            for item in items:
+                result.append({
+                    "action_id":            item.get("action_id", ""),
+                    "timestamp":            item.get("timestamp", ""),
+                    "anomaly_type":         item.get("anomaly_type", ""),
+                    "action_taken":         item.get("action_taken", ""),
+                    "resource_id":          item.get("resource_id", ""),
+                    "resource_type":        item.get("resource_type", ""),
+                    "status":               item.get("status", ""),
+                    "estimated_saving_usd": safe_float(item.get("estimated_saving_usd"), 0.0),
+                    "rollback_command":     item.get("rollback_command", "")
+                })
+            return jsonify(result)
+    except Exception as e:
+        logger.warning(f"Optimization-log query exception: {e}")
 
     return jsonify(generate_demo_optimization_log())
 
@@ -405,66 +382,41 @@ def optimization_log():
 # ─────────────────────────────────────────
 @app.route("/api/savings-summary")
 def savings_summary():
-    mode = request.args.get("mode", "auto").lower()
+    try:
+        audit_table = get_table(AUDIT_TABLE_NAME)
+        anomaly_table = get_table(ANOMALY_TABLE_NAME)
+        items = scan_all(audit_table)
+        anomaly_items = scan_all(anomaly_table)
 
-    if mode != "demo":
-        try:
-            audit_table = get_table(AUDIT_TABLE_NAME)
-            anomaly_table = get_table(ANOMALY_TABLE_NAME)
-            items = scan_all(audit_table)
-            anomaly_items = scan_all(anomaly_table)
+        if items or anomaly_items:
+            total_saving   = sum(safe_float(i.get("estimated_saving_usd"), 0.0) for i in items)
+            actioned_count = sum(1 for i in items if i.get("status") == "actioned")
+            skipped_count  = sum(1 for i in items if i.get("status") == "skipped")
+            failed_count   = sum(1 for i in items if i.get("status") == "failed")
 
-            if items or anomaly_items:
-                total_saving   = sum(safe_float(i.get("estimated_saving_usd"), 0.0) for i in items)
-                actioned_count = sum(1 for i in items if i.get("status") == "actioned")
-                skipped_count  = sum(1 for i in items if i.get("status") == "skipped")
-                failed_count   = sum(1 for i in items if i.get("status") == "failed")
+            by_type = {}
+            for item in items:
+                rtype  = item.get("resource_type", "Unknown")
+                saving = safe_float(item.get("estimated_saving_usd"), 0.0)
+                by_type[rtype] = round(by_type.get(rtype, 0) + saving, 6)
 
-                by_type = {}
-                for item in items:
-                    rtype  = item.get("resource_type", "Unknown")
-                    saving = safe_float(item.get("estimated_saving_usd"), 0.0)
-                    by_type[rtype] = round(by_type.get(rtype, 0) + saving, 6)
+            by_anomaly = {}
+            for item in anomaly_items:
+                atype = item.get("anomaly_type", "Unknown")
+                by_anomaly[atype] = by_anomaly.get(atype, 0) + 1
 
-                by_anomaly = {}
-                for item in anomaly_items:
-                    atype = item.get("anomaly_type", "Unknown")
-                    by_anomaly[atype] = by_anomaly.get(atype, 0) + 1
-
-                return jsonify({
-                    "total_saving_usd":   round(total_saving, 4),
-                    "total_saving_daily": round(total_saving * 24, 4),
-                    "total_saving_monthly": round(total_saving * 24 * 30, 4),
-                    "actions_taken":      actioned_count,
-                    "actions_skipped":    skipped_count,
-                    "actions_failed":     failed_count,
-                    "savings_by_type":    by_type,
-                    "anomalies_by_type":  by_anomaly
-                })
-            elif mode == "live":
-                return jsonify({
-                    "total_saving_usd": 0.0,
-                    "total_saving_daily": 0.0,
-                    "total_saving_monthly": 0.0,
-                    "actions_taken": 0,
-                    "actions_skipped": 0,
-                    "actions_failed": 0,
-                    "savings_by_type": {},
-                    "anomalies_by_type": {}
-                })
-        except Exception as e:
-            logger.warning(f"Live savings-summary query exception: {e}")
-            if mode == "live":
-                return jsonify({
-                    "total_saving_usd": 0.0,
-                    "total_saving_daily": 0.0,
-                    "total_saving_monthly": 0.0,
-                    "actions_taken": 0,
-                    "actions_skipped": 0,
-                    "actions_failed": 0,
-                    "savings_by_type": {},
-                    "anomalies_by_type": {}
-                }), 200
+            return jsonify({
+                "total_saving_usd":   round(total_saving, 4),
+                "total_saving_daily": round(total_saving * 24, 4),
+                "total_saving_monthly": round(total_saving * 24 * 30, 4),
+                "actions_taken":      actioned_count,
+                "actions_skipped":    skipped_count,
+                "actions_failed":     failed_count,
+                "savings_by_type":    by_type,
+                "anomalies_by_type":  by_anomaly
+            })
+    except Exception as e:
+        logger.warning(f"Savings-summary query exception: {e}")
 
     return jsonify(generate_demo_savings_summary())
 
@@ -492,10 +444,9 @@ def health():
         "status": "ok",
         "service": "Cloud Cost Intelligence API",
         "region": os.getenv("AWS_REGION", "us-east-1"),
-        "simulation_mode": is_simulation_mode(),
+        "simulation_mode": True,
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
-
 
 
 if __name__ == "__main__":

@@ -5,7 +5,6 @@ from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
-from botocore.exceptions import ClientError
 
 # Ensure repository root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -53,14 +52,8 @@ def fetch_pending_anomalies():
         items = scan_all(anomaly_table, Attr("status").eq("pending"))
         logger.info(f"Found {len(items)} pending anomalies")
         return items
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            logger.error(
-                f"DynamoDB table '{ANOMALY_TABLE_NAME}' does not exist! "
-                "Please run 'python scripts/setup_aws.py' to initialize the required tables."
-            )
-        else:
-            logger.error(f"Failed to fetch pending anomalies: {e}")
+    except Exception as e:
+        logger.error(f"Failed to fetch pending anomalies: {e}")
         return []
 
 
@@ -261,7 +254,7 @@ def write_audit_record(anomaly, action_result):
             "rollback_command": action_result.get("rollback_command", ""),
             "estimated_saving_usd": str(action_result.get("estimated_saving_usd", 0))
         })
-    except ClientError as e:
+    except Exception as e:
         logger.error(f"Failed to write audit record to '{AUDIT_TABLE_NAME}': {e}")
 
     try:
@@ -278,7 +271,7 @@ def write_audit_record(anomaly, action_result):
                     ":a": action_result.get("action", "none")
                 }
             )
-    except ClientError as e:
+    except Exception as e:
         logger.error(f"Failed to update anomaly status in '{ANOMALY_TABLE_NAME}': {e}")
 
     return action_id
