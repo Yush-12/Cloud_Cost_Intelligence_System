@@ -165,9 +165,10 @@ All 74 unit and integration tests run offline without network or credential requ
 
 ---
 
-## 📖 Operational Runbook
+## 📖 Documentation & Runbook
 
-See [`RUNBOOK.md`](RUNBOOK.md) for full incident response, IAM policy templates, threshold tuning, and emergency rollback procedures.
+- **Operational Runbook**: See [`RUNBOOK.md`](RUNBOOK.md) for full incident response, IAM policy templates, threshold tuning, and emergency rollback procedures.
+- **Experiment Evidence & Lab Journal**: See [`docs/CHECKPOINT.md`](docs/CHECKPOINT.md) for detailed development history, lab evidence, and experiment checkpoint logs.
 
 ---
 

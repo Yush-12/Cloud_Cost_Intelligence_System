@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -13,13 +13,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy entire repository
 COPY . .
 
-# Expose web dashboard port
-EXPOSE 5000
+# Expose web dashboard ports (5002 for costintel, 5000 for simulation)
+EXPOSE 5002 5000
 
-# Default configuration
-ENV FLASK_HOST=0.0.0.0
-ENV FLASK_PORT=5000
-ENV AWS_REGION=us-east-1
-
-# Start the unified single-process entry point (API + pipeline)
-CMD ["python", "app.py"]
+# Default entry point runs the production-grade costintel dashboard in demo mode
+CMD ["python", "-m", "costintel", "serve", "--mode", "demo", "--port", "5002"]

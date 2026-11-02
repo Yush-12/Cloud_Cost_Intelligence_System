@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/index.py": {
-      "includeFiles": "{web/**,src/**,scripts/**}",
+      "includeFiles": "{web/**,src/**,scripts/**,costintel/**}",
       "maxDuration": 60
     }
   },
