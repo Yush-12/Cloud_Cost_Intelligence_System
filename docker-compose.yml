@@ -1,5 +1,4 @@
 services:
-  # Primary: Production-grade Cloud Cost Intelligence Platform (Port 5002)
   costintel:
     build:
       context: .
@@ -8,22 +7,4 @@ services:
     command: python -m costintel serve --mode demo --port 5002
     ports:
       - "5002:5002"
-    restart: unless-stopped
-
-  # Secondary: FinOps Synthetic Simulation Prototype (Port 5000)
-  simulation:
-    build:
-      context: .
-      dockerfile: infra/Dockerfile
-    container_name: cost-intel-simulation
-    command: python app.py
-    ports:
-      - "5000:5000"
-    environment:
-      - AWS_REGION=us-east-1
-      - FLASK_HOST=0.0.0.0
-      - FLASK_PORT=5000
-      - PIPELINE_INTERVAL_SECONDS=900
-      - CONFIDENCE_THRESHOLD=0.85
-      - MAX_ACTIONS_PER_HOUR=5
     restart: unless-stopped

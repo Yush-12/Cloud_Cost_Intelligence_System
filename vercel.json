@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/index.py": {
-      "includeFiles": "{web/**,src/**,scripts/**,costintel/**}",
+      "includeFiles": "costintel/**",
       "maxDuration": 60
     }
   },
@@ -9,12 +9,6 @@
     {
       "source": "/(.*)",
       "destination": "/api/index.py"
-    }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron",
-      "schedule": "0 0 * * *"
     }
   ]
 }

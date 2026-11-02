@@ -13,6 +13,10 @@ from costintel.store import SnapshotStore
 TAG = 'CostIntelReview'
 
 
+def _plan_id(*parts):
+    return hashlib.sha256(json.dumps(list(parts), sort_keys=True).encode()).hexdigest()
+
+
 def review_plan(store, account, region, now=None):
     now = now or datetime.now(timezone.utc)
     resource = f'arn:aws:lambda:{region}:{account}:function:costintel-lab-workload'
@@ -24,7 +28,7 @@ def review_plan(store, account, region, now=None):
         if not 0 <= age <= 86400:
             continue
         evidence = {k: result[k] for k in ('metric', 'sample_timestamp', 'score', 'baseline_start', 'baseline_end')}
-        key = hashlib.sha256(json.dumps([account, region, resource, evidence], sort_keys=True).encode()).hexdigest()
+        key = _plan_id(account, region, resource, evidence)
         return {'id': key, 'resource': resource, 'account': account, 'region': region,
                 'evidence': evidence, 'tag': {TAG: 'review-' + key[:24]}, 'action': 'tag_for_review'}
     return None
@@ -80,7 +84,7 @@ def idle_ec2_plan(store, account, region, threshold_cpu=2.0, now=None):
             continue
         avg_cpu = round(sum(p['value'] for p in points) / len(points), 4)
         if avg_cpu <= threshold_cpu:
-            key = hashlib.sha256(json.dumps([account, region, instance_id, 'stop_idle_instance', avg_cpu], sort_keys=True).encode()).hexdigest()
+            key = _plan_id(account, region, instance_id, 'stop_idle_instance', avg_cpu)
             plans.append({
                 'id': key,
                 'action': 'stop_idle_instance',
@@ -185,7 +189,7 @@ def unused_volume_plan(store, account, region, now=None):
     for res in snapshot.get('resources', []):
         if res.get('service') == 'ebs' and res.get('state') == 'available' and res.get('attachments', 0) == 0:
             volume_id = res['resource_id']
-            key = hashlib.sha256(json.dumps([account, region, volume_id, 'tag_unused_volume'], sort_keys=True).encode()).hexdigest()
+            key = _plan_id(account, region, volume_id, 'tag_unused_volume')
             plans.append({
                 'id': key,
                 'action': 'tag_unused_volume',

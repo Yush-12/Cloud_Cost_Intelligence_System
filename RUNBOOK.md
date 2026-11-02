@@ -25,7 +25,7 @@ The system supports two execution modalities:
 | **Preview Lambda Concurrency Containment** | `python -m costintel.containment preview --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID` | Reads current reserved concurrency |
 | **Apply Lambda Containment (Throttle to 0)** | `python -m costintel.containment apply --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID` | Requires `CostIntelContainment=true` |
 | **Restore Lambda Concurrency** | `python -m costintel.containment restore --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID --action-id <UUID>` | Restores original concurrency setting |
-| **Run Automated Pytest Suite** | `python -m pytest tests -q --basetemp=".local-data/pytest-tmp"` | 74 automated unit & integration tests |
+| **Run Automated Pytest Suite** | `python -m pytest tests -q --basetemp=".local-data/pytest-tmp"` | 61 automated unit & integration tests |
 
 ---
 
