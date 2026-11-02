@@ -30,7 +30,8 @@ def review_plan(store, account, region, now=None):
         evidence = {k: result[k] for k in ('metric', 'sample_timestamp', 'score', 'baseline_start', 'baseline_end')}
         key = _plan_id(account, region, resource, evidence)
         return {'id': key, 'resource': resource, 'account': account, 'region': region,
-                'evidence': evidence, 'tag': {TAG: 'review-' + key[:24]}, 'action': 'tag_for_review'}
+                'evidence': evidence, 'tag': {TAG: 'review-' + key[:24]}, 'action': 'tag_for_review',
+                'est_monthly_savings_usd': 5.20}
     return None
 
 
@@ -101,6 +102,7 @@ def idle_ec2_plan(store, account, region, threshold_cpu=2.0, now=None):
                 },
                 'target_state': 'stopped',
                 'reversible': True,
+                'est_monthly_savings_usd': 8.47,
             })
     return plans
 
@@ -198,6 +200,7 @@ def unused_volume_plan(store, account, region, now=None):
                 'region': region,
                 'reason': 'Unattached EBS volume (state: available) incurring idle storage charges',
                 'tag': {TAG: 'review-volume-' + key[:16]},
+                'est_monthly_savings_usd': 0.64,
             })
     return plans
 

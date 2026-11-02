@@ -36,7 +36,11 @@ def test_viewer_distinguishes_uncollected_empty_and_stale(tmp_path):
     assert result["account_id"] == "123456789012"
     assert result["stale"] is True
     assert result["optimization_enabled"] is False
-    assert b"Collection succeeded" in client.get("/").data
+    assert "est_monthly_savings" in result
+    page = client.get("/").data
+    assert b"Collection succeeded" in page
+    assert b"Optimization impact (Before vs After)" in page
+    assert b"Est. Run-Rate Impact" in page
     actions_res = client.get("/api/actions").json
     assert "reviews" in actions_res
     assert "containments" in actions_res

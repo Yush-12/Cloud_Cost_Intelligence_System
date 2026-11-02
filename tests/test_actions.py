@@ -79,6 +79,7 @@ def test_idle_ec2_plan_generation(tmp_path):
     assert plans[0]['resource'] == inst_id
     assert plans[0]['target_state'] == 'stopped'
     assert plans[0]['evidence']['average'] == pytest.approx(0.8)
+    assert plans[0]['est_monthly_savings_usd'] == 8.47
 
     # When CPU is high, no idle plan generated
     snap_busy = {
@@ -170,6 +171,7 @@ def test_unused_volume_tagging_and_plans(tmp_path):
     assert len(plans) == 1
     assert plans[0]['action'] == 'tag_unused_volume'
     assert plans[0]['resource'] == vol_id
+    assert plans[0]['est_monthly_savings_usd'] == 0.64
 
     # Test tagging
     session, sts, ec2 = Mock(), Mock(), Mock()

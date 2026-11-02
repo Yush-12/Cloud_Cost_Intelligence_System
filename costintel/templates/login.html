@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CostIntel · Precision Cloud Cost Intelligence & Autonomous FinOps</title>
+  <script src="{{ url_for('static', filename='theme.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body class="login-body">
+  <div class="login-wrapper">
+    <div class="login-card">
+      <!-- Header -->
+      <header class="login-header">
+        <div class="login-brand">
+          <div class="login-logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+              <polyline points="16 7 22 7 22 13"></polyline>
+            </svg>
+          </div>
+          <div>
+            <span class="brand-title">CostIntel</span>
+            <span class="login-badge">FINOPS ACCESS GATEWAY</span>
+          </div>
+        </div>
+        <h1>Connect AWS Workspace</h1>
+        <p class="login-subtitle">Direct, zero-persistence telemetry ingestion and autonomous cloud optimization. Enter temporary IAM credentials to inspect live resources and remediate cost anomalies.</p>
+      </header>
+
+      <!-- Security Guarantees Callout -->
+      <div class="security-pillars">
+        <div class="pillar-item">
+          <span class="pillar-bullet">1</span>
+          <div>
+            <strong>RAM-Only Lifecycle</strong>
+            <small>Credentials reside strictly in-memory and are never written to disk or SQLite.</small>
+          </div>
+        </div>
+        <div class="pillar-item">
+          <span class="pillar-bullet">2</span>
+          <div>
+            <strong>STS Verification</strong>
+            <small>Identity verified via <code>GetCallerIdentity</code>; root accounts are strictly rejected.</small>
+          </div>
+        </div>
+        <div class="pillar-item">
+          <span class="pillar-bullet">3</span>
+          <div>
+            <strong>Reversible Actions</strong>
+            <small>Cloud API remediations feature instant rollback to unreserved baseline.</small>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Login Form -->
+      <form id="aws-login-form" class="login-form">
+        <div class="form-group">
+          <label for="aws-access-key">AWS Access Key ID</label>
+          <input id="aws-access-key" name="access_key_id" type="text" class="form-control mono" placeholder="AKIA..." autocomplete="off" spellcheck="false" required>
+        </div>
+
+        <div class="form-group">
+          <div class="label-row">
+            <label for="aws-secret-key">AWS Secret Access Key</label>
+            <button id="toggle-secret-btn" type="button" class="btn-text">Show</button>
+          </div>
+          <input id="aws-secret-key" name="secret_access_key" type="password" class="form-control mono" placeholder="••••••••••••••••••••••••••••••••" autocomplete="off" spellcheck="false" required>
+        </div>
+
+        <div class="form-group">
+          <label for="aws-session-token">AWS Session Token <span class="muted-tag">Optional (Temporary STS)</span></label>
+          <input id="aws-session-token" name="session_token" type="text" class="form-control mono" placeholder="IQoJb3JpZ2luX2VjE..." autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="form-group">
+          <label for="aws-region">Target AWS Region</label>
+          <select id="aws-region" name="region" class="form-control">
+            <option value="ap-south-1" selected>ap-south-1 (Mumbai · Lab Region)</option>
+            <option value="us-east-1">us-east-1 (N. Virginia)</option>
+            <option value="us-west-2">us-west-2 (Oregon)</option>
+            <option value="eu-west-1">eu-west-1 (Ireland)</option>
+            <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+          </select>
+        </div>
+
+        <div id="login-error-msg" class="login-alert error" hidden>
+          <span class="alert-icon">✕</span>
+          <span id="login-error-text">Authentication failed. Check your keys and IAM permissions.</span>
+        </div>
+
+        <button id="login-submit-btn" type="submit" class="button primary full-width">
+          <span>Authenticate & Open Workspace</span>
+          <span id="login-spinner" class="spinner" hidden></span>
+        </button>
+      </form>
+
+      <!-- Testing Presets Accordion -->
+      <details class="testing-accordion">
+        <summary>Developer & Evaluator Presets <span class="tag-dev">TESTING</span></summary>
+        <div class="preset-content">
+          <p class="muted">Fast-track connections for local hackathon evaluation. Uses local AWS profiles or simulated sandbox.</p>
+          <div class="preset-buttons">
+            <button type="button" class="preset-btn" data-preset="costintel-deploy">
+              <span class="preset-title">costintel-deploy</span>
+              <span class="preset-desc">Deployment & Containment profile (695313591289)</span>
+            </button>
+            <button type="button" class="preset-btn" data-preset="costintel">
+              <span class="preset-title">costintel</span>
+              <span class="preset-desc">Read-only Telemetry Collector profile (695313591289)</span>
+            </button>
+            <button type="button" class="preset-btn" data-preset="demo">
+              <span class="preset-title">Offline Demo Sandbox</span>
+              <span class="preset-desc">Preloaded multi-service simulated environment</span>
+            </button>
+          </div>
+        </div>
+      </details>
+
+      <footer class="login-footer">
+        <span>CostIntel · Precision Cloud Cost Intelligence</span>
+        <button id="theme-toggle" class="theme-toggle-minimal" type="button" aria-label="Toggle theme">☾</button>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    // Show/hide secret key
+    const toggleBtn = document.querySelector('#toggle-secret-btn');
+    const secretInput = document.querySelector('#aws-secret-key');
+    if (toggleBtn && secretInput) {
+      toggleBtn.addEventListener('click', () => {
+        const isPass = secretInput.type === 'password';
+        secretInput.type = isPass ? 'text' : 'password';
+        toggleBtn.textContent = isPass ? 'Hide' : 'Show';
+      });
+    }
+
+    // Form submission
+    const form = document.querySelector('#aws-login-form');
+    const submitBtn = document.querySelector('#login-submit-btn');
+    const spinner = document.querySelector('#login-spinner');
+    const errorBox = document.querySelector('#login-error-msg');
+    const errorText = document.querySelector('#login-error-text');
+
+    async function handleLogin(payload) {
+      submitBtn.disabled = true;
+      spinner.hidden = false;
+      errorBox.hidden = true;
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Authentication rejected by AWS STS.');
+        }
+        window.location.href = '/';
+      } catch (err) {
+        errorText.textContent = err.message;
+        errorBox.hidden = false;
+      } finally {
+        submitBtn.disabled = false;
+        spinner.hidden = true;
+      }
+    }
+
+    if (form) {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const payload = {
+          access_key_id: document.querySelector('#aws-access-key').value.trim(),
+          secret_access_key: document.querySelector('#aws-secret-key').value.trim(),
+          session_token: document.querySelector('#aws-session-token').value.trim() || null,
+          region: document.querySelector('#aws-region').value
+        };
+        handleLogin(payload);
+      });
+    }
+
+    // Presets
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const preset = btn.dataset.preset;
+        if (preset === 'demo') {
+          handleLogin({ mode: 'demo' });
+        } else {
+          handleLogin({ profile: preset, mode: 'aws', region: 'ap-south-1' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
+

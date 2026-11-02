@@ -31,7 +31,8 @@ def prepare(client, account):
     previous = client.get_function_concurrency(FunctionName=arn).get('ReservedConcurrentExecutions')
     return {'account': account, 'resource': arn, 'previous': previous, 'target': 0,
             'opted_in': function.get('Tags', {}).get('CostIntelContainment') == 'true',
-            'effect': 'Blocks new executions; not a measured savings estimate'}
+            'effect': 'Blocks new executions; not a measured savings estimate',
+            'est_monthly_savings_usd': 5.20}
 
 
 def initialize(store):

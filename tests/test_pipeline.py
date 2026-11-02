@@ -9,7 +9,7 @@ def test_pipeline_demo_mode(tmp_path):
     store = SnapshotStore(tmp_path / "pipeline.db")
     report = run_pipeline(store, mode="demo", account="demo-account", region="ap-south-1")
     assert report["mode"] == "demo"
-    assert report["inventory"]["resources_count"] == 2
+    assert report["inventory"]["resources_count"] == 4
     assert report["execution"]["mode"] == "dry_run"
     assert "snapshot_id" in report
 
