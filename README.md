@@ -6,7 +6,7 @@
 
 ## 🌟 Executive Overview & Core Capabilities
 
-The `costintel` package is the production-grade implementation connected to live AWS infrastructure (tested in Mumbai `ap-south-1`, AWS account `695313591289` under AWS Free Tier / Tutorial credits).
+The `costintel` package is the production-grade implementation connected to live AWS infrastructure (tested in Mumbai `ap-south-1`, under AWS Free Tier / Tutorial credits).
 
 ### Key Features:
 - **Real Resource Inventory & Telemetry**: Paginated AWS SDK reads for EC2 instances and Lambda functions, with bounded CloudWatch 5-minute metric streams (`CPUUtilization`, `NetworkIn`, `NetworkOut`, `Invocations`, `Errors`, `Duration`, `Throttles`, `ConcurrentExecutions`).
