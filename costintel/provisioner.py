@@ -236,6 +236,37 @@ def teardown_lab(session, account_id, region="ap-south-1"):
     except Exception:
         pass
 
+    # 3. Clean up tagged S3 lab bucket
+    try:
+        s3 = session.client("s3", region_name=region, config=config)
+        bucket_name = f"costintel-lab-archive-{account_id}"
+        try:
+            tags = s3.get_bucket_tagging(Bucket=bucket_name).get("TagSet", [])
+            if any(t.get("Key") == LAB_TAG_KEY and t.get("Value") == LAB_TAG_VAL for t in tags):
+                objs = s3.list_objects_v2(Bucket=bucket_name).get("Contents", [])
+                for o in objs:
+                    s3.delete_object(Bucket=bucket_name, Key=o["Key"])
+                s3.delete_bucket(Bucket=bucket_name)
+                actions_taken.append(f"Deleted tagged S3 test bucket: {bucket_name}.")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # 4. Clean up tagged DynamoDB lab table
+    try:
+        ddb = session.client("dynamodb", region_name=region, config=config)
+        tbl_name = "costintel-lab-cache"
+        try:
+            tags = ddb.list_tags_of_resource(ResourceArn=f"arn:aws:dynamodb:{region}:{account_id}:table/{tbl_name}").get("Tags", [])
+            if any(t.get("Key") == LAB_TAG_KEY and t.get("Value") == LAB_TAG_VAL for t in tags):
+                ddb.delete_table(TableName=tbl_name)
+                actions_taken.append(f"Deleted tagged DynamoDB table: {tbl_name}.")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     return {
         "status": "completed",
         "teardown_at": datetime.now(timezone.utc).isoformat(),

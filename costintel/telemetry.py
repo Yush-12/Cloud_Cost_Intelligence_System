@@ -9,6 +9,9 @@ METRICS = {
     "lambda": [("Invocations", "Sum", "Count"), ("Errors", "Sum", "Count"),
                ("Duration", "Average", "Milliseconds"),
                ("Throttles", "Sum", "Count"), ("ConcurrentExecutions", "Maximum", "Count")],
+    "dynamodb": [("ConsumedReadCapacityUnits", "Sum", "Count"),
+                 ("ConsumedWriteCapacityUnits", "Sum", "Count")],
+    "s3": [("BucketSizeBytes", "Average", "Bytes")],
 }
 
 
@@ -28,29 +31,60 @@ def collect_metrics(client, resources, now=None, max_resources=10, window_hours=
     series = []
     for resource in selected:
         service = resource["service"]
-        dimension = ("InstanceId" if service == "ec2" else "FunctionName")
-        dimension_value = (resource["resource_id"] if service == "ec2" else
-                           resource["resource_id"].split(":function:", 1)[-1])
+        period = 86400 if service == "s3" else 300
+        metric_end = end
+        metric_start = (end - timedelta(days=2)) if service == "s3" else start
+        exp_pts = 2 if service == "s3" else expected_points
+
+        dim_name = {
+            "ec2": "InstanceId",
+            "lambda": "FunctionName",
+            "s3": "BucketName",
+            "dynamodb": "TableName",
+        }[service]
+        dim_value = (
+            resource["resource_id"].split(":function:", 1)[-1]
+            if service == "lambda"
+            else resource["resource_id"]
+        )
+        dimensions = [{"Name": dim_name, "Value": dim_value}]
+        if service == "s3":
+            dimensions.append({"Name": "StorageType", "Value": "StandardStorage"})
+
+        namespace = {
+            "ec2": "AWS/EC2",
+            "lambda": "AWS/Lambda",
+            "s3": "AWS/S3",
+            "dynamodb": "AWS/DynamoDB",
+        }[service]
+
         for name, statistic, unit in METRICS[service]:
             response = client.get_metric_statistics(
-                Namespace="AWS/EC2" if service == "ec2" else "AWS/Lambda",
-                MetricName=name, Dimensions=[{"Name": dimension, "Value": dimension_value}],
-                StartTime=start, EndTime=end, Period=300, Statistics=[statistic], Unit=unit)
+                Namespace=namespace,
+                MetricName=name,
+                Dimensions=dimensions,
+                StartTime=metric_start,
+                EndTime=metric_end,
+                Period=period,
+                Statistics=[statistic],
+                Unit=unit,
+            )
             by_time = {}
             for point in response.get("Datapoints", []):
                 timestamp = point["Timestamp"].astimezone(timezone.utc)
                 value = point.get(statistic)
-                if start <= timestamp < end and value is not None and math.isfinite(value):
+                if metric_start <= timestamp < metric_end and value is not None and math.isfinite(value):
                     by_time[timestamp.isoformat()] = float(value)
             points = [{"timestamp": timestamp, "value": value}
                       for timestamp, value in sorted(by_time.items())]
             latest = points[-1] if points else None
             series.append({"resource_id": resource["resource_id"], "service": service,
+                           "scope": "StandardStorage only" if service == "s3" else "resource",
                            "metric": name, "statistic": statistic, "unit": unit,
-                           "period_seconds": 300, "points": points,
+                           "period_seconds": period, "points": points,
                            "status": "available" if points else "missing",
-                           "latest": latest, "expected_points": expected_points,
-                           "missing_points": max(0, expected_points - len(points))})
+                           "latest": latest, "expected_points": exp_pts,
+                           "missing_points": max(0, exp_pts - len(points))})
     return {"window_start": start.isoformat(), "window_end": end.isoformat(),
             "collected_resources": len(selected), "skipped_resources": len(eligible) - len(selected),
             "api_calls": len(series), "series": series}

@@ -28,6 +28,17 @@ def annotate_resource_cost(resource):
         resource["est_monthly_usd"] = 0.00
         resource["rate_display"] = "Free Tier (25 RCU/WCU)"
         resource["savings_opportunity"] = "Pay-per-request baseline safe"
+    elif svc == "ebs":
+        state = resource.get("state")
+        atts = resource.get("attachments", 0)
+        size = resource.get("size_gb", 8)
+        cost = round(size * 0.08, 2)
+        resource["est_monthly_usd"] = cost
+        resource["rate_display"] = f"${cost:.2f} / mo ({size}GB gp3)"
+        if state == "available" and atts == 0:
+            resource["savings_opportunity"] = f"Unattached volume: delete to save ${cost:.2f}/mo"
+        else:
+            resource["savings_opportunity"] = "Attached to active instance"
     return resource
 
 
@@ -57,12 +68,32 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
             resources.append({"resource_id": function["FunctionArn"], "service": "lambda",
                                "runtime": function.get("Runtime"),
                                "memory_mb": function["MemorySize"]})
+    # Storage volumes (EBS)
+    try:
+        for page in ec2.get_paginator("describe_volumes").paginate():
+            for volume in page.get("Volumes", []):
+                resources.append({
+                    "resource_id": volume["VolumeId"],
+                    "service": "ebs",
+                    "state": volume.get("State", "available"),
+                    "attachments": len(volume.get("Attachments", [])),
+                    "size_gb": volume.get("Size", 8),
+                })
+    except (BotoCoreError, ClientError, Exception):
+        pass
+
     # Optional/safe read: Storage buckets (S3)
     try:
         s3 = session.client("s3", region_name=region, config=config)
         for bucket in s3.list_buckets().get("Buckets", []):
-            resources.append({"resource_id": bucket["Name"], "service": "s3",
-                              "state": "available"})
+            try:
+                loc = s3.get_bucket_location(Bucket=bucket["Name"]).get("LocationConstraint") or "us-east-1"
+                if loc == "EU":
+                    loc = "eu-west-1"
+                if loc == region:
+                    resources.append({"resource_id": bucket["Name"], "service": "s3", "state": "available"})
+            except Exception:
+                resources.append({"resource_id": bucket["Name"], "service": "s3", "state": "available"})
     except (BotoCoreError, ClientError, KeyError, Exception):
         pass
 
@@ -70,8 +101,16 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
     try:
         ddb = session.client("dynamodb", region_name=region, config=config)
         for table_name in ddb.list_tables().get("TableNames", []):
-            resources.append({"resource_id": table_name, "service": "dynamodb",
-                              "state": "ACTIVE"})
+            try:
+                desc = ddb.describe_table(TableName=table_name)["Table"]
+                resources.append({
+                    "resource_id": table_name,
+                    "service": "dynamodb",
+                    "state": desc.get("TableStatus", "ACTIVE"),
+                    "billing_mode": desc.get("BillingModeSummary", {}).get("BillingMode", "PAY_PER_REQUEST"),
+                })
+            except Exception:
+                resources.append({"resource_id": table_name, "service": "dynamodb", "state": "ACTIVE"})
     except (BotoCoreError, ClientError, KeyError, Exception):
         pass
 

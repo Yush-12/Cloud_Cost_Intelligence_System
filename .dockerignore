@@ -13,3 +13,12 @@ env/
 .idea/
 .vscode/
 *.log
+
+.local-data/
+.aws/
+*.tfstate*
+*.tfplan
+*.tfvars
+**/.terraform/
+**/*.sqlite3
+**/*.db

@@ -32,17 +32,14 @@ def calculate_est_savings(store, owner, mode, account, region):
             total += 5.20
             applied_resources.add(c.get('resource'))
 
-    reviews = store.review_history(owner, mode, account, region)
-    for r in reviews:
-        if r.get('status') == 'applied' and r.get('resource') not in applied_resources:
-            total += 5.20
-            applied_resources.add(r.get('resource'))
+    # Note: Governance review tags flag anomalies for human review,
+    # but do not alter compute run-rates until remediation is executed.
 
     if total == 0.0:
         try:
             from costintel.actions import generate_optimization_plans
             plans = generate_optimization_plans(store, account, region)
-            total = sum(p.get('est_monthly_savings_usd', 0.0) for p in plans)
+            total = sum(p.get('est_monthly_savings_usd', 0.0) for p in plans if p.get('action') != 'tag_for_review')
         except Exception:
             pass
 
@@ -64,30 +61,35 @@ def create_app(store, owner, mode, account, region):
         "profile": "costintel" if mode == "aws" else None,
     }
 
-    def get_boto3_session():
+    def get_scope():
         sid = session.get("session_id")
         if sid and sid in active_sessions:
-            sess_data = active_sessions[sid]
-            creds = sess_data.get("credentials")
-            if creds:
-                return boto3.Session(
-                    aws_access_key_id=creds["aws_access_key_id"],
-                    aws_secret_access_key=creds["aws_secret_access_key"],
-                    aws_session_token=creds.get("aws_session_token"),
-                    region_name=state["region"],
-                )
-            if sess_data.get("profile"):
-                return boto3.Session(profile_name=sess_data["profile"], region_name=state["region"])
+            return active_sessions[sid]
+        return state
+
+    def get_boto3_session():
+        scope = get_scope()
+        creds = scope.get("credentials")
+        if creds:
+            return boto3.Session(
+                aws_access_key_id=creds["aws_access_key_id"],
+                aws_secret_access_key=creds["aws_secret_access_key"],
+                aws_session_token=creds.get("aws_session_token"),
+                region_name=scope["region"],
+            )
+        if scope.get("profile"):
+            return boto3.Session(profile_name=scope["profile"], region_name=scope["region"])
         # Default profile fallback
         if state.get("profile"):
-            return boto3.Session(profile_name=state["profile"], region_name=state["region"])
-        return boto3.Session(region_name=state["region"])
+            return boto3.Session(profile_name=state["profile"], region_name=scope["region"])
+        return boto3.Session(region_name=scope["region"])
 
     def current():
-        o = state["owner"]
-        m = state["mode"]
-        acc = state["account_id"]
-        reg = state["region"]
+        scope = get_scope()
+        o = scope["owner"]
+        m = scope["mode"]
+        acc = scope["account_id"]
+        reg = scope["region"]
         data = store.latest(o, m, acc, reg)
         age = None
         if data:
@@ -98,7 +100,7 @@ def create_app(store, owner, mode, account, region):
             "mode": m,
             "account_id": acc,
             "region": reg,
-            "profile": state.get("profile"),
+            "profile": scope.get("profile"),
             "status": "not_collected" if data is None else "snapshot_available",
             "age_seconds": age,
             "stale": age is not None and age > 900,
@@ -125,20 +127,22 @@ def create_app(store, owner, mode, account, region):
         prof = req.get("profile", "").strip()
         req_mode = req.get("mode", "").strip()
 
-        sid = str(uuid.uuid4())
+        sid = session.get("session_id") or str(uuid.uuid4())
 
         # 1. Offline Demo Mode
         if req_mode == "demo" or prof == "demo":
-            state["mode"] = "demo"
-            state["profile"] = None
-            state["account_id"] = "demo-account"
-            state["region"] = reg
-            active_sessions[sid] = {"mode": "demo", "account_id": "demo-account", "region": reg}
+            active_sessions[sid] = {
+                "owner": owner,
+                "mode": "demo",
+                "profile": None,
+                "account_id": "demo-account",
+                "region": reg,
+            }
             session["session_id"] = sid
             session["logged_out"] = False
             # Ensure demo data is saved
             demo_data = collect_demo(reg)
-            store.save(state["owner"], demo_data)
+            store.save(owner, demo_data)
             return jsonify({
                 "status": "ok",
                 "message": "Connected to Offline Demo Sandbox",
@@ -155,18 +159,20 @@ def create_app(store, owner, mode, account, region):
                 if ident.get("Arn", "").endswith(":root"):
                     return jsonify({"error": "Root credentials are not supported. Use a dedicated IAM user/role."}), 400
 
-                state["mode"] = "aws"
-                state["profile"] = prof
-                state["account_id"] = ident["Account"]
-                state["region"] = reg
-                active_sessions[sid] = {"mode": "aws", "profile": prof, "account_id": ident["Account"], "region": reg}
+                active_sessions[sid] = {
+                    "owner": owner,
+                    "mode": "aws",
+                    "profile": prof,
+                    "account_id": ident["Account"],
+                    "region": reg,
+                }
                 session["session_id"] = sid
                 session["logged_out"] = False
 
                 # Auto-collect current inventory
                 try:
                     data = collect_aws(reg, session=test_sess, expected_account=ident["Account"], with_metrics=False)
-                    store.save(state["owner"], data)
+                    store.save(owner, data)
                 except Exception:
                     pass
 
@@ -196,13 +202,11 @@ def create_app(store, owner, mode, account, region):
             if ident.get("Arn", "").endswith(":root"):
                 return jsonify({"error": "Root credentials are not supported. Use a dedicated IAM user/role."}), 400
 
-            state["mode"] = "aws"
-            state["profile"] = None
-            state["account_id"] = ident["Account"]
-            state["region"] = reg
             # Store in RAM only
             active_sessions[sid] = {
+                "owner": owner,
                 "mode": "aws",
+                "profile": None,
                 "credentials": {
                     "aws_access_key_id": access_key,
                     "aws_secret_access_key": secret_key,
@@ -217,7 +221,7 @@ def create_app(store, owner, mode, account, region):
             # Collect initial inventory
             try:
                 data = collect_aws(reg, session=ephemeral_sess, expected_account=ident["Account"], with_metrics=False)
-                store.save(state["owner"], data)
+                store.save(owner, data)
             except Exception:
                 pass
 
@@ -234,9 +238,9 @@ def create_app(store, owner, mode, account, region):
     @app.post("/api/auth/logout")
     def api_logout():
         sid = session.get("session_id")
-        if sid in active_sessions:
+        if sid and sid in active_sessions:
             del active_sessions[sid]
-        session["session_id"] = None
+        session.clear()
         session["logged_out"] = True
         return jsonify({"status": "ok", "message": "Session destroyed. Credentials purged from RAM."})
 
@@ -249,10 +253,11 @@ def create_app(store, owner, mode, account, region):
         if session.get("logged_out"):
             return redirect(url_for("login_page"))
 
-        o = state["owner"]
-        m = state["mode"]
-        acc = state["account_id"]
-        reg = state["region"]
+        scope = get_scope()
+        o = scope["owner"]
+        m = scope["mode"]
+        acc = scope["account_id"]
+        reg = scope["region"]
         return render_template(
             "dashboard.html",
             view=current(),
@@ -268,10 +273,11 @@ def create_app(store, owner, mode, account, region):
 
     @app.get("/api/actions")
     def action_history():
-        o = state["owner"]
-        m = state["mode"]
-        acc = state["account_id"]
-        reg = state["region"]
+        scope = get_scope()
+        o = scope["owner"]
+        m = scope["mode"]
+        acc = scope["account_id"]
+        reg = scope["region"]
         return jsonify({
             "mode": m,
             "account_id": acc,
@@ -283,10 +289,11 @@ def create_app(store, owner, mode, account, region):
 
     @app.get("/api/detection")
     def detection():
-        o = state["owner"]
-        m = state["mode"]
-        acc = state["account_id"]
-        reg = state["region"]
+        scope = get_scope()
+        o = scope["owner"]
+        m = scope["mode"]
+        acc = scope["account_id"]
+        reg = scope["region"]
         return jsonify({
             "mode": m,
             "optimization_enabled": False,
@@ -295,10 +302,11 @@ def create_app(store, owner, mode, account, region):
 
     @app.get("/api/metrics")
     def metrics():
-        o = state["owner"]
-        m = state["mode"]
-        acc = state["account_id"]
-        reg = state["region"]
+        scope = get_scope()
+        o = scope["owner"]
+        m = scope["mode"]
+        acc = scope["account_id"]
+        reg = scope["region"]
         resource = request.args.get("resource_id")
         metric = request.args.get("metric")
         if not resource or not metric:
@@ -314,6 +322,12 @@ def create_app(store, owner, mode, account, region):
 
     @app.get("/api/profiles")
     def list_profiles():
+        scope = get_scope()
+        cur_mode = scope["mode"]
+        cur_profile = scope.get("profile")
+        cur_account = scope["account_id"]
+        cur_region = scope["region"]
+
         discovered = []
         try:
             sess = boto3.Session()
@@ -326,7 +340,7 @@ def create_app(store, owner, mode, account, region):
                 elif "reader" in p or p == "costintel":
                     role = "CostIntel Telemetry Reader"
 
-                is_act = (state["mode"] == "aws" and (state["profile"] == p or (not state["profile"] and p == "costintel")))
+                is_act = (cur_mode == "aws" and (cur_profile == p or (not cur_profile and p == "costintel")))
                 discovered.append({
                     "name": p,
                     "type": "aws",
@@ -336,11 +350,11 @@ def create_app(store, owner, mode, account, region):
         except Exception:
             pass
 
-        if not discovered and state["mode"] == "aws":
+        if not discovered and cur_mode == "aws":
             discovered.append({
                 "name": "aws-active",
                 "type": "aws",
-                "role": f"Active AWS Account ({state['account_id']})",
+                "role": f"Active AWS Account ({cur_account})",
                 "active": True,
             })
 
@@ -348,30 +362,34 @@ def create_app(store, owner, mode, account, region):
             "name": "demo",
             "type": "demo",
             "role": "Simulated Multi-Service Environment (Offline)",
-            "active": (state["mode"] == "demo"),
+            "active": (cur_mode == "demo"),
         })
 
         return jsonify({
             "active": {
-                "mode": state["mode"],
-                "profile": state.get("profile") or ("costintel" if state["mode"] == "aws" else "demo"),
-                "account_id": state["account_id"],
-                "region": state["region"],
+                "mode": cur_mode,
+                "profile": cur_profile or ("costintel" if cur_mode == "aws" else "demo"),
+                "account_id": cur_account,
+                "region": cur_region,
             },
             "profiles": discovered,
         })
 
     @app.post("/api/profiles/switch")
     def switch_profile():
+        scope = get_scope()
         req = request.get_json(silent=True) or {}
         target = req.get("profile", "").strip()
-        target_region = req.get("region") or state["region"]
+        target_region = req.get("region") or scope["region"]
+
+        sid = session.get("session_id")
+        target_dict = active_sessions[sid] if (sid and sid in active_sessions) else state
 
         if target == "demo" or req.get("mode") == "demo":
-            state["mode"] = "demo"
-            state["profile"] = None
-            state["account_id"] = "demo-account"
-            state["region"] = target_region
+            target_dict["mode"] = "demo"
+            target_dict["profile"] = None
+            target_dict["account_id"] = "demo-account"
+            target_dict["region"] = target_region
             return jsonify({
                 "status": "ok",
                 "message": "Switched to demo simulated environment",
@@ -390,10 +408,10 @@ def create_app(store, owner, mode, account, region):
             if identity.get("Arn", "").endswith(":root"):
                 return jsonify({"error": "Root credentials are not supported. Use a dedicated IAM user/role."}), 400
 
-            state["mode"] = "aws"
-            state["profile"] = target
-            state["account_id"] = identity["Account"]
-            state["region"] = target_region
+            target_dict["mode"] = "aws"
+            target_dict["profile"] = target
+            target_dict["account_id"] = identity["Account"]
+            target_dict["region"] = target_region
 
             return jsonify({
                 "status": "ok",
@@ -415,9 +433,10 @@ def create_app(store, owner, mode, account, region):
 
     @app.post("/api/lab/provision")
     def api_lab_provision():
-        cur_mode = state["mode"]
-        acc = state["account_id"]
-        reg = state["region"]
+        scope = get_scope()
+        cur_mode = scope["mode"]
+        acc = scope["account_id"]
+        reg = scope["region"]
         if cur_mode != "aws":
             return jsonify({
                 "status": "provisioned",
@@ -439,9 +458,10 @@ def create_app(store, owner, mode, account, region):
 
     @app.post("/api/lab/teardown")
     def api_lab_teardown():
-        cur_mode = state["mode"]
-        acc = state["account_id"]
-        reg = state["region"]
+        scope = get_scope()
+        cur_mode = scope["mode"]
+        acc = scope["account_id"]
+        reg = scope["region"]
         if cur_mode != "aws":
             return jsonify({
                 "status": "completed",
@@ -461,15 +481,16 @@ def create_app(store, owner, mode, account, region):
 
     @app.post("/api/pipeline/run")
     def run_live_pipeline():
+        scope = get_scope()
         req = request.get_json(silent=True) or {}
         apply_changes = bool(req.get("apply", False))
         stimulate = req.get("stimulate", "none")
         stim_count = int(req.get("stimulate_count", 5))
         stim_count = max(1, min(20, stim_count))
-        prof = req.get("profile") or state.get("profile")
-        reg = req.get("region") or state["region"]
-        cur_mode = state["mode"]
-        acc = state["account_id"]
+        cur_mode = scope["mode"]
+        acc = scope["account_id"]
+        reg = req.get("region") or scope["region"]
+        prof = req.get("profile") or scope.get("profile")
 
         logs = []
         stimulation_res = None
@@ -509,6 +530,8 @@ def create_app(store, owner, mode, account, region):
                 account=acc,
                 region=reg,
                 profile=pipe_prof,
+                session=get_boto3_session() if cur_mode == "aws" else None,
+                owner=scope["owner"],
                 expected_account=acc,
                 with_metrics=(cur_mode == "aws"),
                 max_resources=10,
@@ -524,7 +547,7 @@ def create_app(store, owner, mode, account, region):
                 "summary": summary,
                 "stimulation": stimulation_res,
                 "logs": logs,
-                "est_monthly_savings": calculate_est_savings(store, state["owner"], cur_mode, acc, reg),
+                "est_monthly_savings": calculate_est_savings(store, scope["owner"], cur_mode, acc, reg),
             })
         except Exception as exc:
             logs.append(f"[PIPELINE ERROR] {str(exc)}")
@@ -536,13 +559,14 @@ def create_app(store, owner, mode, account, region):
 
     @app.post("/api/workload/stimulate")
     def direct_stimulate():
+        scope = get_scope()
         req = request.get_json(silent=True) or {}
         scenario = req.get("scenario", "slow")
         count = int(req.get("count", 5))
         count = max(1, min(20, count))
-        reg = state["region"]
-        acc = state["account_id"]
-        cur_mode = state["mode"]
+        reg = scope["region"]
+        acc = scope["account_id"]
+        cur_mode = scope["mode"]
 
         if cur_mode == "aws":
             try:
@@ -565,14 +589,51 @@ def create_app(store, owner, mode, account, region):
 
     @app.post("/api/workload/restore")
     def direct_restore():
-        reg = state["region"]
-        acc = state["account_id"]
-        cur_mode = state["mode"]
+        scope = get_scope()
+        reg = scope["region"]
+        acc = scope["account_id"]
+        cur_mode = scope["mode"]
+        req = request.get_json(silent=True) or {}
+        action_id = req.get("action_id")
 
         if cur_mode == "aws":
+            sess = get_boto3_session()
+            if action_id:
+                with store.connect() as db:
+                    c_row = None
+                    o_row = None
+                    if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='containment_actions'").fetchone():
+                        c_row = db.execute("SELECT id, plan FROM containment_actions WHERE id=?", (action_id,)).fetchone()
+                    if not c_row and db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='optimization_actions'").fetchone():
+                        o_row = db.execute("SELECT id, plan FROM optimization_actions WHERE id=?", (action_id,)).fetchone()
+
+                if c_row:
+                    plan = json.loads(c_row[1])
+                    if plan.get("account") != acc:
+                        return jsonify({"error": "Action does not belong to active account"}), 403
+                    try:
+                        from costintel.containment import client_for, restore as restore_containment
+                        c_client = client_for(sess, acc)
+                        res = restore_containment(store, c_client, acc, action_id)
+                        return jsonify({"status": "ok", "message": f"Containment action {action_id} restored.", "result": res})
+                    except Exception as exc:
+                        return jsonify({"error": f"Failed to restore containment: {str(exc)}"}), 500
+                elif o_row:
+                    plan = json.loads(o_row[1])
+                    if plan.get("account") != acc:
+                        return jsonify({"error": "Action does not belong to active account"}), 403
+                    try:
+                        from costintel.actions import apply_start_instance
+                        res = apply_start_instance(store, sess, action_id)
+                        return jsonify({"status": "ok", "message": f"Optimization action {action_id} restored.", "result": res})
+                    except Exception as exc:
+                        return jsonify({"error": f"Failed to restore optimization: {str(exc)}"}), 500
+                else:
+                    return jsonify({"error": f"Action ID '{action_id}' not found"}), 404
+
+            # Bulk / default lab workload restoration
             try:
                 cfg = Config(connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 1})
-                sess = get_boto3_session()
                 client = sess.client("lambda", region_name=reg, config=cfg)
                 func_arn = f"arn:aws:lambda:{reg}:{acc}:function:costintel-lab-workload"
                 try:
@@ -582,9 +643,23 @@ def create_app(store, owner, mode, account, region):
 
                 with store.connect() as db:
                     if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='containment_actions'").fetchone():
-                        db.execute("UPDATE containment_actions SET status='restored' WHERE status != 'restored'")
+                        c_rows = db.execute("SELECT id, plan FROM containment_actions WHERE status != 'restored'").fetchall()
+                        for r_id, r_plan_str in c_rows:
+                            try:
+                                r_plan = json.loads(r_plan_str)
+                                if r_plan.get("account") == acc:
+                                    db.execute("UPDATE containment_actions SET status='restored' WHERE id=?", (r_id,))
+                            except Exception:
+                                pass
                     if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='optimization_actions'").fetchone():
-                        db.execute("UPDATE optimization_actions SET status='restored' WHERE status = 'applied'")
+                        o_rows = db.execute("SELECT id, plan FROM optimization_actions WHERE status = 'applied'").fetchall()
+                        for r_id, r_plan_str in o_rows:
+                            try:
+                                r_plan = json.loads(r_plan_str)
+                                if r_plan.get("account") == acc and r_plan.get("region") == reg:
+                                    db.execute("UPDATE optimization_actions SET status='restored' WHERE id=?", (r_id,))
+                            except Exception:
+                                pass
 
                 return jsonify({
                     "status": "ok",
@@ -595,9 +670,23 @@ def create_app(store, owner, mode, account, region):
         else:
             with store.connect() as db:
                 if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='containment_actions'").fetchone():
-                    db.execute("UPDATE containment_actions SET status='restored' WHERE status != 'restored'")
+                    c_rows = db.execute("SELECT id, plan FROM containment_actions WHERE status != 'restored'").fetchall()
+                    for r_id, r_plan_str in c_rows:
+                        try:
+                            r_plan = json.loads(r_plan_str)
+                            if r_plan.get("account") == "demo-account":
+                                db.execute("UPDATE containment_actions SET status='restored' WHERE id=?", (r_id,))
+                        except Exception:
+                            pass
                 if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='optimization_actions'").fetchone():
-                    db.execute("UPDATE optimization_actions SET status='restored' WHERE status = 'applied'")
+                    o_rows = db.execute("SELECT id, plan FROM optimization_actions WHERE status = 'applied'").fetchall()
+                    for r_id, r_plan_str in o_rows:
+                        try:
+                            r_plan = json.loads(r_plan_str)
+                            if r_plan.get("account") == "demo-account":
+                                db.execute("UPDATE optimization_actions SET status='restored' WHERE id=?", (r_id,))
+                        except Exception:
+                            pass
             return jsonify({
                 "status": "ok",
                 "message": "Demo environment baseline restored.",

@@ -41,6 +41,8 @@ def run_pipeline(
     apply=False,
     action_type='all',
     threshold_cpu=2.0,
+    session=None,
+    owner='local',
 ):
     # Step 1: Collect inventory and telemetry
     if mode == 'demo':
@@ -49,15 +51,16 @@ def run_pipeline(
         data = collect_aws(
             region=region,
             profile=profile,
+            session=session,
             expected_account=expected_account or account,
             with_metrics=with_metrics,
             max_resources=max_resources,
             window_hours=window_hours,
         )
-    snapshot_id = store.save('local', data)
+    snapshot_id = store.save(owner, data)
 
     # Step 2: Anomaly Detection
-    detection_results = analyze(store, 'local', mode, account, region)
+    detection_results = analyze(store, owner, mode, account, region)
     outliers = [r for r in detection_results if r.get('status') == 'outlier']
     insufficient_var = [r for r in detection_results if r.get('status') == 'insufficient_variation']
     insufficient_data = [r for r in detection_results if r.get('status') == 'insufficient_data']
@@ -82,9 +85,10 @@ def run_pipeline(
             for p in plans:
                 results.append({'id': p['id'], 'status': 'applied_simulated', 'action': p.get('action')})
         else:
-            if not profile:
-                raise ValueError('Applying optimizations in AWS mode requires --profile')
-            session = boto3.Session(profile_name=profile, region_name=region)
+            if session is None:
+                if not profile:
+                    raise ValueError('Applying optimizations in AWS mode requires an authenticated session or --profile')
+                session = boto3.Session(profile_name=profile, region_name=region)
             for p in plans:
                 try:
                     res = apply_optimization_plan(store, session, p)

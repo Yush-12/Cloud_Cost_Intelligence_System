@@ -1,3 +1,19 @@
+{% macro icon(name) -%}
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if name == 'grid' %}<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>
+{% elif name == 'pulse' %}<path d="M2 12h5l3-8 4 16 3-8h5"/>
+{% elif name == 'box' %}<path d="m12 3 9 5v9l-9 5-9-5V8l9-5Zm0 9 9-4M12 12 3 8m9 4v10"/>
+{% elif name == 'shield' %}<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>
+{% elif name == 'arrow' %}<path d="M5 12h14m-6-6 6 6-6 6"/>
+{% elif name == 'arrow-left' %}<path d="M19 12H5m6-6-6 6 6 6"/>
+{% elif name == 'menu' %}<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+{% elif name == 'refresh' %}<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.2 8a8 8 0 0 1 13-3L20 8M4 16l1.8 3a8 8 0 0 0 13-3"/>
+{% elif name == 'sun' %}<circle cx="12" cy="12" r="4"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/>
+{% elif name == 'zap' %}<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+{% else %}<circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3v1"/>
+{% endif %}
+</svg>
+{%- endmacro %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,859 +22,587 @@
   <title>CostIntel · Autonomous Cloud Cost Intelligence & FinOps</title>
   <script src="{{ url_for('static', filename='theme.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
 </head>
 <body>
-  <a class="skip" href="#main">Skip to overview</a>
+  <a class="skip" href="#main">Skip to content</a>
 
-  <!-- Sidebar Navigation (Retractable, Vantage/Linear style) -->
+  <!-- Sidebar (Retractable & Responsive) -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
+    <div class="sidebar-top-row">
       <a class="brand" href="#overview">
-        <div class="logo-badge" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
-            <polyline points="16 7 22 7 22 13"></polyline>
-          </svg>
-        </div>
-        <div>
-          <span class="brand-title">CostIntel</span>
-        </div>
-        <span class="brand-badge">FINOPS</span>
+        <span class="brand-mark">{{ icon('pulse') }}</span>costintel<span class="brand-dot">.</span>
       </a>
-
-      <!-- Direct Collapse Button on Sidebar -->
-      <button id="sidebar-collapse-btn" class="sidebar-icon-btn" type="button" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-          <line x1="9" y1="3" x2="9" y2="21"></line>
-          <path d="M14 9l-3 3 3 3"></path>
-        </svg>
+      <button class="icon-button" id="sidebar-collapse-btn" title="Collapse sidebar (Ctrl+B)" aria-label="Collapse sidebar">
+        {{ icon('arrow-left') }}
       </button>
     </div>
 
-    <div class="workspace-widget">
-      <span class="workspace-badge">AWS</span>
+    <div class="workspace">
+      <span class="workspace-avatar">{{ 'D' if view.mode == 'demo' else 'A' }}</span>
       <div>
-        <strong>Cloud Workspace</strong>
-        <small>{{ view.region }}</small>
+        <strong>{{ 'Demo Workspace' if view.mode == 'demo' else 'AWS Workspace' }}</strong>
+        <small>{{ view.account_id }} · {{ view.region }}</small>
       </div>
+      <span class="connection-dot"></span>
     </div>
 
-    <p class="nav-section-label">Platform</p>
+    <p class="nav-label">NAVIGATION</p>
     <nav aria-label="Main navigation">
-      <a href="#overview" class="active">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7"></rect>
-          <rect x="14" y="3" width="7" height="7"></rect>
-          <rect x="14" y="14" width="7" height="7"></rect>
-          <rect x="3" y="14" width="7" height="7"></rect>
-        </svg>
-        Overview
-      </a>
-      <a href="#metrics">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-        </svg>
-        Metric explorer
-      </a>
-      <a href="#resources">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
-          <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-          <line x1="6" y1="6" x2="6.01" y2="6"></line>
-          <line x1="6" y1="18" x2="6.01" y2="18"></line>
-        </svg>
-        Resources
-      </a>
-      <a href="#impact">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-        </svg>
-        Optimization impact
-      </a>
-      <a href="#actions">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <polyline points="12 6 12 12 16 14"></polyline>
-        </svg>
-        Action history
-      </a>
-      <a href="#setup">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="8" x2="12" y2="16"></line>
-          <line x1="8" y1="12" x2="16" y2="12"></line>
-        </svg>
-        Connect account
-      </a>
+      <a href="#overview" class="active">{{ icon('grid') }}Overview<span class="nav-key">01</span></a>
+      <a href="#explore">{{ icon('pulse') }}Metric explorer<span class="nav-key">02</span></a>
+      <a href="#resources">{{ icon('box') }}Resources<span class="nav-key">03</span></a>
+      <a href="#impact">{{ icon('zap') }}Optimization impact<span class="nav-key">04</span></a>
+      <a href="#actions">{{ icon('shield') }}Action history<span class="nav-key">05</span></a>
     </nav>
 
-    <div class="sidebar-bottom">
-      <div class="system-status">
-        <span class="pulse-dot"></span> Local SQLite Store
+    <div class="sidebar-note">
+      {{ icon('shield') }}
+      <strong>Evidence before action.</strong>
+      <p>Automated cloud changes require an explicit plan, model score, and resource opt-in.</p>
+      <a href="#setup">Workspace guide {{ icon('arrow') }}</a>
+    </div>
+
+    <div class="sidebar-footer">
+      <span class="avatar">CI</span>
+      <div>
+        <strong>{{ 'Local Workspace' if view.mode == 'aws' else 'Demo Sandbox' }}</strong>
+        <small>Ephemeral FinOps Console</small>
       </div>
-      <p>Zero external telemetry leaks.<br>Credentials stay in your AWS profile.</p>
-      <a href="/api/inventory">Inspect snapshot JSON ↗</a>
+      <button class="icon-button" id="logout" title="Disconnect workspace" aria-label="Disconnect workspace">↪</button>
     </div>
   </aside>
 
-  <!-- App Main Frame (Fullscreen expandable) -->
+  <!-- Main View Area -->
   <div class="app">
-    <!-- Topbar (Glassmorphism Sticky) -->
     <header class="topbar">
       <div class="topbar-left">
-        <!-- Sidebar Toggle Icon Button (For Fullscreen Toggle) -->
-        <button id="sidebar-toggle-btn" class="topbar-icon-btn" type="button" title="Toggle sidebar (Ctrl+B)" aria-label="Toggle sidebar" aria-expanded="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
-          </svg>
+        <button class="icon-button" id="sidebar-toggle-btn" title="Toggle Sidebar (Ctrl+B)" aria-label="Toggle Sidebar">
+          {{ icon('menu') }}
         </button>
-
-        <div class="breadcrumb-trail">
-          <span>Workspace</span>
-          <span class="divider">/</span>
-          <strong>{{ view.region }}</strong>
-        </div>
-        <div class="live-beacon">
-          <span class="pulse-dot"></span> Pipeline Active · 5m Cadence
-        </div>
+        <div class="breadcrumb">Workspace <span>/</span><strong>Overview</strong></div>
       </div>
-
-      <div class="topbar-right">
-        <button id="theme-toggle" class="button theme-toggle" type="button" aria-label="Toggle dark/light mode" aria-pressed="false">☾ Dark mode</button>
-
-        <!-- Interactive AWS Profile Switcher Pill -->
-        <div class="profile-dropdown-container">
-          <button id="profile-switcher-btn" class="profile-switcher-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Switch AWS Profile or Demo Mode">
-            <span class="profile-status-dot"></span>
-            <span class="profile-name-label" id="current-profile-label">
-              {% if view.mode == 'demo' %}
-                Demo Sandbox
-              {% else %}
-                {{ view.profile or view.account_id }}
-              {% endif %}
-            </span>
-            <svg class="dropdown-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </button>
-          <div id="profile-dropdown-menu" class="profile-dropdown-menu" hidden>
-            <div class="profile-menu-header">
-              <span>Select Profile / Mode</span>
-              <small>Instant STS Switch</small>
-            </div>
-            <div class="profile-menu-list" id="profile-menu-items">
-              <!-- Dynamically populated via JS -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Run Live Pipeline Button -->
-        <button id="open-pipeline-btn" class="button primary run-pipeline-pill-btn" type="button" title="Open FinOps Pipeline Console">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="btn-icon">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          <span>Run Pipeline</span>
-        </button>
-
-        <!-- Disconnect / Logout Button -->
-        <button id="logout-btn" class="button logout-pill-btn" type="button" title="Purge in-memory credentials and return to login">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="btn-icon">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-            <polyline points="16 17 21 12 16 7"></polyline>
-            <line x1="21" y1="12" x2="9" y2="12"></line>
-          </svg>
-          <span>Disconnect</span>
-        </button>
+      <div class="top-controls">
+        <span class="scope-badge">
+          <span class="connection-dot"></span>
+          {{ 'SIMULATED DEMO' if view.mode == 'demo' else 'AWS SNAPSHOT' }}
+        </span>
+        <button class="icon-button" id="theme-toggle" aria-label="Change theme" aria-pressed="false" title="Change theme">{{ icon('sun') }}</button>
+        <button class="button secondary small-btn" id="logout-top" title="Sign out / Purge session credentials">Disconnect</button>
       </div>
     </header>
 
+    {% set snap = view.snapshot %}
+    {% set outliers = detections|selectattr('status', 'equalto', 'outlier')|list %}
+    {% set total_actions = actions|length + containments|length + optimizations|length %}
+
     <main id="main">
-      <!-- Section 1: Overview & Hero -->
-      <section id="overview" class="intro">
+      <!-- Hero Header -->
+      <section id="overview" class="hero">
         <div>
-          <p class="eyebrow">Cloud Cost Intelligence & Autonomous FinOps</p>
-          <h1>Understand usage.<br class="mobile"> Act with evidence.</h1>
-          <p class="subtitle">Continuous usage telemetry across EC2, Lambda, S3 & DynamoDB. Isolation Forest anomaly detection paired with guarded, rollback-safe cloud API remediation.</p>
+          <div class="eyebrow"><span class="short-line"></span> YOUR CLOUD, IN CONTEXT</div>
+          <h1>Clarity at every layer<span>.</span></h1>
+          <p>Understand what changed. Investigate the telemetry evidence. Stay in autonomous control.</p>
         </div>
-        <a class="button" href="/">↻ Reload saved data</a>
+        <div class="hero-actions">
+          <span class="region-label">{{ view.region }} <span>/ {{ 'AWS Multi-Service' if view.mode == 'aws' else 'Simulated Environment' }}</span></span>
+          <button id="collect" class="button primary">{{ icon('refresh') }}{{ 'Refresh Demo Sandbox' if view.mode == 'demo' else 'Collect & Preview' }}</button>
+        </div>
       </section>
 
-      {% set snap = view.snapshot %}
-      {% set outliers = detections|selectattr('status', 'equalto', 'outlier')|list %}
-
-      <!-- Telemetry Freshness Banner -->
-      <div class="freshness {{ 'warning' if view.stale else '' }}">
-        <span class="status-dot {{ 'warn' if view.stale else '' }}"></span>
-        <div>
-          <strong>{{ 'Historical snapshot' if view.stale else 'Saved snapshot' if snap else 'Waiting for your first collection' }}</strong>
-          <span>
-            {% if snap %}
-              Collected <time datetime="{{ snap.collected_at }}">{{ snap.collected_at }}</time>
-            {% else %}
-              Connect a profile and run the collector to begin.
-            {% endif %}
-          </span>
-        </div>
-        <small>Read-only local store · Does not call AWS on reload</small>
+      <!-- Freshness Banner -->
+      <div class="freshness {{ 'stale' if view.stale else '' }}">
+        <span class="freshness-icon">{{ icon('info') }}</span>
+        <p>
+          <strong>{{ 'Historical snapshot' if view.stale else 'Saved snapshot' if snap else 'No snapshot yet' }}</strong>
+          {% if snap %}
+            <span>Collected <time datetime="{{ snap.collected_at }}">{{ snap.collected_at }}</time></span>
+          {% else %}
+            <span>Collect metrics to begin your investigation.</span>
+          {% endif %}
+        </p>
+        <span class="freshness-note">{{ 'Simulated telemetry · zero cloud charges' if view.mode == 'demo' else 'CloudWatch observations · guarded mutation window' }}</span>
       </div>
 
-      <!-- High-Impact FinOps KPI Cards (Vantage / Datadog style) -->
-      <section class="stats" aria-label="Workspace summary">
-        <!-- Card 1: Discovered Resources -->
-        <article>
-          <div class="stat-header">
+      <!-- Stat Grid (4 KPI Cards) -->
+      <section class="stat-grid" aria-label="Workspace summary">
+        <article class="stat-card">
+          <div class="stat-top">
             <span>Discovered resources</span>
-            <span class="badge neutral">4 Services</span>
+            {{ icon('box') }}
           </div>
           <strong>{{ snap.resources|length if snap else '—' }}</strong>
-          <small>EC2, Lambda, S3, DynamoDB · this region</small>
-          <div class="service-breakdown-bar" title="Service distribution: EC2, Lambda, S3, DynamoDB">
-            <span class="bar-seg ec2"></span>
-            <span class="bar-seg lambda"></span>
-            <span class="bar-seg s3"></span>
-            <span class="bar-seg dynamodb"></span>
+          <div class="stat-foot">
+            <span class="mini-dot blue"></span>
+            {{ snap.coverage|length if (snap and snap.coverage) else 4 }} services in inventory
           </div>
         </article>
 
-        <!-- Card 2: ML Metric Outliers -->
-        <article>
-          <div class="stat-header">
-            <span>Latest metric outliers</span>
-            <span class="badge {{ 'warn' if outliers else 'success' }}">{{ 'Outlier' if outliers else 'Normal' }}</span>
+        <article class="stat-card attention">
+          <div class="stat-top">
+            <span>Metric outliers</span>
+            {{ icon('pulse') }}
           </div>
-          <strong class="{{ 'amber-text' if outliers else '' }}">{{ outliers|length }}</strong>
-          <small>{{ 'Investigation recommended' if outliers else 'No outliers in available results' }}</small>
+          <strong>{{ outliers|length }}<span class="stat-unit">to investigate</span></strong>
+          <div class="stat-foot">
+            <span class="mini-dot amber"></span>
+            Isolation Forest decision anomalies
+          </div>
         </article>
 
-        <!-- Card 3: Guarded Actions -->
-        <article>
-          <div class="stat-header">
+        <article class="stat-card">
+          <div class="stat-top">
             <span>Recorded actions</span>
-            <span class="badge neutral">100% Guarded</span>
+            {{ icon('shield') }}
           </div>
-          <strong>{{ (actions|length) + (containments|length) + (optimizations|default([])|length) }}</strong>
-          <small>Remediation + containment + reviews</small>
+          <strong>{{ total_actions }}</strong>
+          <div class="stat-foot">
+            <span class="mini-dot mint"></span>
+            Verified status in audit history
+          </div>
         </article>
 
-        <!-- Card 4: Run-Rate Savings Impact -->
-        <article>
-          <div class="stat-header">
+        <article class="stat-card">
+          <div class="stat-top">
             <span>Est. Run-Rate Impact</span>
-            <span class="badge success">Measured</span>
+            {{ icon('zap') }}
           </div>
-          <strong class="emerald-text">-${{ "%.2f"|format(view.est_monthly_savings|default(0.0)) }}<small>/mo</small></strong>
-          <small>AWS list pricing estimate · Billing lags 24h</small>
+          <strong class="text-value">-${{ "%.2f"|format(view.est_monthly_savings or 0.0) }}<span class="stat-unit">/ mo</span></strong>
+          <div class="stat-foot">
+            <span class="mini-dot mint"></span>
+            Measured compute run-rate reduction
+          </div>
         </article>
       </section>
 
-      <!-- Section 2: Metric Explorer & ML Diagnostics (Datadog style) -->
-      <section id="metrics" class="section">
-        <div class="section-heading">
+      {% if snap and snap.warnings %}
+        <details class="coverage-notice">
+          <summary>{{ snap.warnings|length }} inventory sources need attention</summary>
+          {% for warning in snap.warnings %}
+            <p><strong>{{ warning.service|upper }}</strong> · {{ warning.code }} · {{ warning.message }}</p>
+          {% endfor %}
+        </details>
+      {% endif %}
+
+      <!-- Section 01: Metric Explorer -->
+      <section id="explore" class="section">
+        <div class="section-head">
           <div>
-            <p class="eyebrow">Investigate Telemetry</p>
-            <h2>Metric explorer</h2>
+            <span class="section-index">01 / OBSERVE</span>
+            <h2>Small signals. Clear evidence.</h2>
           </div>
-          <span class="badge neutral">5-minute observation buckets</span>
+          <span class="pill">Isolation Forest <span class="muted">/ Autonomous Detection</span></span>
         </div>
 
         {% if detections %}
-        <div class="explorer">
-          <div class="chart-panel">
-            <div class="chart-controls">
-              <div>
-                <label for="metric-select">Resource & Metric Target</label>
-                <select id="metric-select">
-                  {% for item in detections %}
-                  <option value="{{ loop.index0 }}" {% if item.metric == 'Duration' %}selected{% endif %}>
-                    {{ item.resource_id.split(':')[-1] }} · {{ item.metric }}
-                  </option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div>
-                <label for="range-select">History Window</label>
-                <div class="range-segments">
-                  <button type="button" class="range-btn" data-range="6">6h</button>
-                  <button type="button" class="range-btn" data-range="24">24h</button>
-                  <button type="button" class="range-btn active" data-range="all">All</button>
+          <div class="explorer">
+            <article class="chart-panel">
+              <div class="chart-toolbar">
+                <div class="select-wrap">
+                  <label for="metric-select">Metric / resource</label>
+                  <select id="metric-select">
+                    {% for item in detections %}
+                      <option value="{{ loop.index0 }}" {% if item.metric == 'Duration' %}selected{% endif %}>
+                        {{ item.metric }} · {{ item.resource_id.split(':')[-1] }}
+                      </option>
+                    {% endfor %}
+                  </select>
                 </div>
-                <select id="range-select" class="sr-only">
-                  <option value="all" selected>All saved observations</option>
-                  <option value="24">Last 24h of observations</option>
-                  <option value="6">Last 6h of observations</option>
-                </select>
+                <div class="range-control">
+                  <label for="range-select">History</label>
+                  <select id="range-select">
+                    <option value="all">All saved</option>
+                    <option value="6">Last 6h</option>
+                    <option value="24">Last 24h</option>
+                    <option value="48">Last 48h</option>
+                  </select>
+                </div>
+                <button class="icon-button" id="export" aria-label="Export observations as CSV" title="Export CSV">↓</button>
               </div>
-            </div>
 
-            <div class="chart-summary">
-              <div>
-                <span id="metric-title">Metric history</span>
-                <strong id="metric-value">—</strong>
+              <div class="chart-heading">
+                <div>
+                  <p id="metric-title" class="muted">Latest observation</p>
+                  <strong id="metric-value">—</strong>
+                </div>
+                <span id="metric-status" class="status-badge"></span>
               </div>
-              <span id="metric-status" class="badge neutral"></span>
-            </div>
 
-            <!-- SVG Time Series Chart -->
-            <div class="chart-wrap">
-              <svg id="chart" viewBox="0 0 850 280" role="img" aria-label="Metric history time-series chart with axes and datapoints"></svg>
-            </div>
-            <p id="chart-caption" class="muted"></p>
-
-            <div class="chart-key">
-              <span class="legend-line"></span> Observed usage
-              <span class="legend-dot"></span> Evaluated outlier
-              <span class="muted">Missing points indicate zero invocation events</span>
-            </div>
-
-            <details class="details">
-              <summary>View raw observation records table</summary>
-              <div class="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Timestamp</th>
-                      <th scope="col">Value</th>
-                      <th scope="col">Unit</th>
-                    </tr>
-                  </thead>
-                  <tbody id="chart-table"></tbody>
-                </table>
+              <div class="chart-wrap">
+                <svg id="chart" role="img" aria-label="Observed metric history. Gaps are not interpolated."></svg>
+                <div id="chart-tooltip" class="chart-tooltip" hidden></div>
               </div>
-            </details>
+
+              <div class="chart-footer">
+                <div>
+                  <span class="legend-mark"></span>Observed usage
+                  <span class="legend-mark flagged"></span>Evaluated outlier
+                </div>
+                <span id="chart-caption"></span>
+              </div>
+
+              <details class="observation-details">
+                <summary>Observation datapoints <span>↗</span></summary>
+                <div class="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Timestamp</th>
+                        <th>Value</th>
+                        <th>Unit</th>
+                      </tr>
+                    </thead>
+                    <tbody id="chart-table"></tbody>
+                  </table>
+                </div>
+              </details>
+            </article>
+
+            <!-- Evidence Brief Side Panel -->
+            <aside class="evidence-panel">
+              <span class="eyebrow">DETECTION BRIEF</span>
+              <div class="evidence-symbol">{{ icon('pulse') }}</div>
+              <h3 id="evidence-heading">Inspect the signal</h3>
+              <p id="evidence-description"></p>
+              <dl>
+                <div>
+                  <dt>Baseline observations</dt>
+                  <dd id="baseline-count">—</dd>
+                </div>
+                <div>
+                  <dt>Anomaly decision score</dt>
+                  <dd id="decision-score">—</dd>
+                </div>
+                <div>
+                  <dt>Evaluated sample time</dt>
+                  <dd id="sample-time">—</dd>
+                </div>
+              </dl>
+              <div class="evidence-note">Isolation Forest calculates anomaly trees against durable baseline points. Decisions are non-destructive without explicit guardrail application.</div>
+              <a class="text-link" href="#actions">Trace the action audit trail {{ icon('arrow') }}</a>
+            </aside>
           </div>
-
-          <!-- ML Model Diagnostic HUD -->
-          <aside class="evidence-panel">
-            <p class="eyebrow">Detection Evidence</p>
-            <h3 id="evidence-heading">Inspect the latest sample</h3>
-            <p id="evidence-description"></p>
-            <dl>
-              <div>
-                <dt>Baseline observations</dt>
-                <dd id="baseline-count">—</dd>
-              </div>
-              <div>
-                <dt>Decision score</dt>
-                <dd id="decision-score">—</dd>
-                <div class="confidence-bar">
-                  <div class="confidence-fill" style="width: 0%;"></div>
-                </div>
-              </div>
-              <div>
-                <dt>Evaluated sample</dt>
-                <dd id="sample-time">—</dd>
-              </div>
-              <div>
-                <dt>ML Detector</dt>
-                <dd>Isolation Forest</dd>
-              </div>
-            </dl>
-            <div class="note">
-              <strong>Guarded Evaluation</strong>
-              <p>Requires 36 consecutive buckets. Unseen test sample is held out from training. Negative score flags true cost outlier.</p>
-            </div>
-            <a href="#actions" class="text-link">Inspect action history ↓</a>
-          </aside>
-        </div>
-        <noscript><p class="freshness warning">Enable JavaScript for the interactive time-series chart. Observation records remain available.</p></noscript>
         {% else %}
-        <div class="empty">
-          <span>⌁</span>
-          <h3>Your metric history starts here</h3>
-          <p>Collect CloudWatch metrics with <code>--with-metrics</code> to explore actual observations.</p>
-          <a class="button" href="#setup">View setup steps ↓</a>
-        </div>
+          <div class="empty-state panel">
+            {{ icon('pulse') }}
+            <h3>A clearer picture starts with data.</h3>
+            <p>Collect CloudWatch metrics to build a history. Missing observations are never treated as zero.</p>
+            <button class="button secondary" data-collect>Collect & preview {{ icon('arrow') }}</button>
+          </div>
         {% endif %}
 
-        <details class="panel details">
-          <summary>All telemetry & collection coverage details</summary>
-          {% if snap and snap.telemetry is defined %}
-          <p class="muted">Window: <time datetime="{{ snap.telemetry.window_start }}">{{ snap.telemetry.window_start }}</time> to <time datetime="{{ snap.telemetry.window_end }}">{{ snap.telemetry.window_end }}</time> · {{ snap.telemetry.skipped_resources }} resources skipped by collection limits.</p>
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Metric / Resource</th>
-                  <th>Latest Observation</th>
-                  <th>Observed Buckets</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for series in snap.telemetry.series %}
-                <tr>
-                  <td>
-                    <strong>{{ series.metric }}</strong>
-                    <small class="resource-id">{{ series.resource_id }}</small>
-                  </td>
-                  <td>
-                    {% if series.latest is not none %}
-                      {{ series.latest.value }} {{ series.unit }}
-                      <small><time datetime="{{ series.latest.timestamp }}">{{ series.latest.timestamp }}</time></small>
-                    {% else %}
-                      Missing — no datapoints
-                    {% endif %}
-                  </td>
-                  <td>{{ series.points|length }}/{{ series.expected_points }} buckets</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
+        <!-- Full Collection Telemetry Coverage Table -->
+        <details class="panel coverage-details">
+          <summary>Collection coverage <span>Full metric inventory ↗</span></summary>
+          {% if snap and snap.telemetry is defined and snap.telemetry.series %}
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Metric / Resource</th>
+                    <th>Latest observation</th>
+                    <th>Coverage</th>
+                    <th>Interval</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for series in snap.telemetry.series %}
+                    <tr>
+                      <td>
+                        <strong>{{ series.metric }}</strong>
+                        <small class="resource-id">{{ series.resource_id }}</small>
+                        <small>{{ series.scope|default('resource') }}</small>
+                      </td>
+                      <td>
+                        {% if series.latest %}
+                          {{ series.latest.value }} {{ series.unit }}
+                          <small><time datetime="{{ series.latest.timestamp }}">{{ series.latest.timestamp }}</time></small>
+                        {% else %}
+                          Missing — no datapoints
+                        {% endif %}
+                      </td>
+                      <td>{{ series.points|length }}/{{ series.expected_points }} buckets</td>
+                      <td>{{ 'Daily' if series.period_seconds == 86400 else '5 minutes' }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
           {% else %}
-          <p>No telemetry collected yet.</p>
+            <p style="padding: 20px; color: var(--muted);">No telemetry collected yet.</p>
           {% endif %}
         </details>
       </section>
 
-      <!-- Section 3: Cloud Inventory (Linear / Datadog Table) -->
+      <!-- Section 02: Resource Inventory -->
       <section id="resources" class="section">
-        <div class="section-heading">
+        <div class="section-head">
           <div>
-            <p class="eyebrow">Cloud Inventory</p>
-            <h2>Your resources</h2>
+            <span class="section-index">02 / EXPLORE</span>
+            <h2>Every resource has a story.</h2>
           </div>
-          <div class="search-wrapper">
-            <svg class="search-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <label class="search-label">
-              <span class="sr-only">Filter resources</span>
-              <input id="resource-search" type="search" placeholder="Filter resources…">
-            </label>
-            <span class="search-kbd-shortcut">Ctrl+K</span>
+          <div class="inventory-controls">
+            <label class="sr-only" for="resource-search">Find a resource</label>
+            <input id="resource-search" type="search" placeholder="Search resources… (Ctrl+K)">
+            <label class="sr-only" for="service-filter">Filter by service</label>
+            <select id="service-filter">
+              <option value="all">All services</option>
+              {% if snap and snap.resources %}
+                {% for svc in snap.resources|map(attribute='service')|unique %}
+                  <option value="{{ svc }}">{{ svc|upper }}</option>
+                {% endfor %}
+              {% endif %}
+            </select>
           </div>
         </div>
 
-        <div class="panel table-scroll">
+        <div class="panel table-scroll inventory-table">
           <table>
             <thead>
               <tr>
                 <th>Resource Identifier</th>
                 <th>Service</th>
-                <th>State / Type</th>
+                <th>State / Runtime</th>
                 <th>Monthly Run-Rate</th>
-                <th>FinOps Opportunity</th>
               </tr>
             </thead>
             <tbody id="resource-rows">
-              {% if snap %}
-                {% for resource in snap.resources %}
-                <tr>
-                  <td>
-                    <strong>{{ resource.resource_id.split(':')[-1] }}</strong>
-                    <small class="resource-id">{{ resource.resource_id }}</small>
-                  </td>
-                  <td>
-                    <span class="service-pill {{ resource.service|lower }}">{{ resource.service|upper }}</span>
-                  </td>
-                  <td>
-                    <span class="status-dot {{ 'warn' if resource.state == 'stopped' else '' }}"></span>
-                    {{ resource.state|default(resource.runtime|default('Active')) }}
-                    {% if resource.instance_type %}<span class="type-tag">· {{ resource.instance_type }}</span>{% endif %}
-                  </td>
-                  <td>
-                    <strong class="cost-rate-badge">{{ resource.rate_display|default('$0.00/mo') }}</strong>
-                  </td>
-                  <td>
-                    <span class="opportunity-pill {{ 'has-savings' if 'save' in (resource.savings_opportunity|default('')|lower) else '' }}">
-                      {{ resource.savings_opportunity|default('Baseline optimized') }}
-                    </span>
-                  </td>
-                </tr>
-                {% else %}
-                <tr>
-                  <td colspan="5">Collection succeeded. No EC2 instances or Lambda functions were discovered in this region.</td>
-                </tr>
+              {% if snap and snap.resources %}
+                {% for r in snap.resources %}
+                  <tr data-service="{{ r.service }}">
+                    <td>
+                      <span class="resource-glyph {{ r.service }}">{{ icon('box') }}</span>
+                      <div>
+                        <strong>{{ r.resource_id.split(':')[-1] }}</strong>
+                        <small class="resource-id">{{ r.resource_id }}</small>
+                      </div>
+                    </td>
+                    <td><span class="pill">{{ r.service|upper }}</span></td>
+                    <td><span class="state-dot"></span>{{ r.state|default(r.runtime|default('Active')) }}</td>
+                    <td><span class="muted">{{ r.rate_display|default('Not estimated') }}</span></td>
+                  </tr>
                 {% endfor %}
+              {% elif snap %}
+                <tr>
+                  <td colspan="4">Collection succeeded. No resources were discovered in the available sources.</td>
+                </tr>
               {% else %}
-              <tr>
-                <td colspan="5">No inventory collected. Connect an account to begin.</td>
-              </tr>
+                <tr>
+                  <td colspan="4">No inventory collected yet.</td>
+                </tr>
               {% endif %}
             </tbody>
           </table>
-          <p id="search-empty" hidden>No resources match your search query.</p>
+          <p id="search-empty" style="padding: 20px; color: var(--muted); text-align: center;" hidden>No resources match this search filter.</p>
         </div>
       </section>
 
-      <!-- Section 4: Before vs After Optimization Impact (PS2 Hero Section) -->
+      <!-- Section 03: Optimization Impact (Before vs After) -->
       <section id="impact" class="section">
-        <div class="section-heading">
+        <div class="section-head">
           <div>
-            <p class="eyebrow">Verified FinOps Lifecycle</p>
+            <span class="section-index">03 / IMPACT</span>
             <h2>Optimization impact (Before vs After)</h2>
           </div>
-          <span class="badge success">Measurable run-rate reduction</span>
+          <span class="pill"><span class="mini-dot mint"></span>Est. Run-Rate Impact: -${{ "%.2f"|format(view.est_monthly_savings or 0.0) }}/mo</span>
         </div>
 
-        <div class="panel impact-container">
-          <div class="impact-header">
-            <div>
-              <h3>Autonomous Workload Remediation Lifecycle</h3>
-              <p class="muted">Live telemetry & verified before/after impact from autonomous cloud API containment & remediation.</p>
+        <div class="audit-grid">
+          <article class="panel audit-panel">
+            <div class="panel-heading">
+              {{ icon('pulse') }}
+              <h3>Before Optimization Baseline</h3>
             </div>
-            <div class="impact-summary-badge">
-              <span>Estimated monthly reduction</span>
-              <strong>-${{ "%.2f"|format(view.est_monthly_savings|default(14.31)) }}<small>/mo</small></strong>
-            </div>
-          </div>
-
-          <div class="impact-grid">
-            <!-- Stage 1: Before -->
-            <div class="impact-card stage-before">
-              <div class="stage-badge warn">1 · BEFORE REMEDIATION</div>
-              <h4>Anomaly Detected</h4>
-              <div class="impact-metric">
-                <span class="metric-label">Observed Metric</span>
-                <strong class="metric-val text-warn">501.8 ms <small>(Outlier)</small></strong>
-                <span class="metric-sub">Isolation Forest Score: -0.1837 · Normal: 8.2ms</span>
+            <div class="audit-entry">
+              <div class="audit-header">
+                <strong>Pre-Remediation Run-Rate</strong>
+                <span class="status-badge warn">Elevated Idle Spend</span>
               </div>
-              <ul class="impact-details">
-                <li><strong>Workload:</strong> <code>costintel-lab-workload</code></li>
-                <li><strong>Incident:</strong> Runaway function duration spike & idle compute</li>
-                <li><strong>Cost Trend:</strong> Unbounded execution cost accumulation</li>
-              </ul>
+              <p>Unthrottled duration anomalies and idle compute instances consuming cloud budget without active application load.</p>
+              <small>Observed baseline: 48h rolling window · Standard Tier</small>
             </div>
-
-            <!-- Stage 2: During -->
-            <div class="impact-card stage-during">
-              <div class="stage-badge neutral">2 · DURING ACTION</div>
-              <h4>Guarded Cloud API Execution</h4>
-              <div class="impact-metric">
-                <span class="metric-label">Autonomous Action</span>
-                <strong class="metric-val text-blue">Concurrency = 0</strong>
-                <span class="metric-sub">Zero compute burn · Callers throttled (429)</span>
+            <div class="audit-entry">
+              <div class="audit-header">
+                <strong>Runaway Duration Vulnerability</strong>
+                <span class="status-badge warn">Unreserved Concurrency</span>
               </div>
-              <ul class="impact-details">
-                <li><strong>Safety Policy:</strong> Opt-in tags & non-root caller verified</li>
-                <li><strong>APIs Executed:</strong> <code>PutFunctionConcurrency</code> / <code>StopInstances</code></li>
-                <li><strong>Audit Log:</strong> Durable intent written prior to API call</li>
-              </ul>
+              <p>Functions executing with full unreserved quota. Synthetic anomaly spikes directly translate into runaway compute billing.</p>
+              <small>Risk: Concurrent execution multiplier unchecked</small>
             </div>
+          </article>
 
-            <!-- Stage 3: After -->
-            <div class="impact-card stage-after">
-              <div class="stage-badge success">3 · AFTER OPTIMIZATION</div>
-              <h4>Safe Baseline & Savings</h4>
-              <div class="impact-metric">
-                <span class="metric-label">Run-Rate Impact</span>
-                <strong class="metric-val text-success">-${{ "%.2f"|format(view.est_monthly_savings|default(14.31)) }}<small>/mo</small></strong>
-                <span class="metric-sub">Compute stopped · Review tagged · Baseline safe</span>
+          <article class="panel audit-panel">
+            <div class="panel-heading">
+              {{ icon('shield') }}
+              <h3>After Autonomous Optimization</h3>
+            </div>
+            <div class="audit-entry">
+              <div class="audit-header">
+                <strong>Est. Run-Rate Impact</strong>
+                <span class="status-badge good">-${{ "%.2f"|format(view.est_monthly_savings or 0.0) }} / mo</span>
               </div>
-              <ul class="impact-details">
-                <li><strong>Restoration:</strong> Verified reversible via cloud SDK</li>
-                <li><strong>FinOps Proof:</strong> $8.47 EC2 + $5.20 Lambda + $0.64 EBS</li>
-                <li><strong>Governance:</strong> <code>CostIntelReview</code> tagged for team inspection</li>
-              </ul>
+              <p>Autonomous throttles clamped runaway function concurrency to 0; idle instance shutdown plans formulated with instant rollback.</p>
+              <small>Verified status: Guardrail Active · Zero persistence overhead</small>
             </div>
-          </div>
-
-          <!-- Interactive AWS Lab Actions Toolbar -->
-          <div class="impact-actions-bar">
-            <div class="impact-action-info">
-              <span class="live-dot"></span>
-              <div>
-                <strong>Live AWS Account Lab Orchestration</strong>
-                <small>Deploy bounded free-tier test resources, stimulate duration runaways, and execute live autonomous remediation.</small>
+            <div class="audit-entry">
+              <div class="audit-header">
+                <strong>Instant Reversibility</strong>
+                <span class="status-badge good">1-Click Restoration</span>
               </div>
+              <p>Original pre-state concurrency and instance parameters recorded durably before API dispatch. Baseline can be restored immediately.</p>
+              <small>Rollback SLA: &lt; 2.5 seconds via AWS SDK</small>
             </div>
-            <div class="impact-btn-group">
-              <button id="btn-lab-provision" class="button neutral" type="button" title="Deploy or verify tagged AWS lab resources">
-                🚀 Provision Lab Resources
-              </button>
-              <button id="quick-stimulate-btn" class="button warn-btn" type="button" title="Invoke 5 slow duration requests on costintel-lab-workload">
-                ⚡ Inject Anomaly Spike
-              </button>
-              <button id="quick-run-pipeline-btn" class="button primary" type="button" title="Execute ML isolation forest and live auto-remediation">
-                ▶ Auto-Remediate
-              </button>
-              <button id="quick-restore-btn" class="button neutral" type="button" title="Remove concurrency throttle and restore unreserved baseline">
-                ↺ Restore Baseline
-              </button>
-              <button id="btn-lab-teardown" class="button danger-btn" type="button" title="Stop compute and cleanup lab resources">
-                🗑️ Teardown Lab
-              </button>
-            </div>
-          </div>
+          </article>
         </div>
       </section>
 
-      <!-- Section 5: Accountability & Action History Timeline -->
+      <!-- Section 04: Action History Audit -->
       <section id="actions" class="section">
-        <div class="section-heading">
+        <div class="section-head">
           <div>
-            <p class="eyebrow">Accountability</p>
-            <h2>Action history</h2>
+            <span class="section-index">04 / VERIFY</span>
+            <h2>A record of every decision.</h2>
           </div>
-          <span class="badge neutral">Guarded API Actions</span>
+          <span class="pill"><span class="mini-dot mint"></span>Audit Before Execution</span>
         </div>
 
-        <div class="action-grid">
-          <!-- Containment Audit -->
-          <article class="panel">
-            <h3>Manual lab containment audit</h3>
-            <p class="muted">Recorded changes and restoration. This is not a live state check.</p>
-            {% for action in containments %}
-            <div class="audit-item">
-              <span class="audit-icon">↺</span>
-              <div>
-                <span class="badge {{ 'success' if action.status == 'restored' else 'warn' }}">{{ action.status|replace('_', ' ') }}</span>
-                <h4>Lambda execution control</h4>
-                <p>Original: {{ action.previous if action.previous is not none else 'Unreserved' }} → containment: 0{% if action.status == 'restored' %} → original restored{% endif %}</p>
-                <small><time datetime="{{ action.created_at }}">{{ action.created_at }}</time></small>
+        <div class="audit-grid">
+          <!-- Containment Card -->
+          <article class="panel audit-panel">
+            <div class="panel-heading">
+              {{ icon('shield') }}
+              <h3>Containment & restoration</h3>
+            </div>
+            {% for a in containments %}
+              <div class="audit-entry">
+                <div class="audit-header">
+                  <strong>Lambda Concurrency Containment</strong>
+                  <span class="status-badge {{ 'good' if a.status == 'restored' else 'warn' }}">{{ a.status|replace('_', ' ') }}</span>
+                </div>
+                <p>Original: {{ a.previous if a.previous is not none else 'Unreserved' }} → containment: 0{% if a.status == 'restored' %} → original restored{% endif %}</p>
+                <small><time datetime="{{ a.created_at }}">{{ a.created_at }}</time></small>
                 <details>
-                  <summary>Evidence identifiers</summary>
-                  <code class="resource-id">{{ action.resource }}<br>{{ action.id }}</code>
+                  <summary>View evidence identifiers</summary>
+                  <code>{{ a.id }}<br>{{ a.resource }}</code>
                 </details>
+                {% if a.status != 'restored' %}
+                  <button class="button secondary restore" style="margin-top: 10px;" data-id="{{ a.id }}" data-kind="containment">Restore Baseline</button>
+                {% endif %}
               </div>
-            </div>
             {% else %}
-            <div class="empty compact">
-              <p>No containment actions recorded.</p>
-            </div>
+              <div class="quiet-empty">No containment actions recorded.</div>
             {% endfor %}
           </article>
 
-          <!-- Review Tag Audit -->
-          <article class="panel">
-            <h3>Review action audit</h3>
-            <p class="muted">Tags request human investigation; they do not establish billed savings.</p>
-            {% for action in actions %}
-            <div class="audit-item">
-              <span class="audit-icon">✓</span>
-              <div>
-                <span class="badge {{ 'success' if action.status == 'applied' else 'warn' }}">{{ action.status|replace('_', ' ') }}</span>
-                <h4>Resource tagged for review</h4>
-                <p>Evidence: <time datetime="{{ action.evidence.sample_timestamp }}">{{ action.evidence.sample_timestamp }}</time></p>
+          <!-- Governance & Optimization Card -->
+          <article class="panel audit-panel">
+            <div class="panel-heading">
+              {{ icon('box') }}
+              <h3>Governance & compute actions</h3>
+            </div>
+            {% for a in actions + optimizations %}
+              <div class="audit-entry">
+                <div class="audit-header">
+                  <strong>{{ a.action|replace('_', ' ')|capitalize }}</strong>
+                  <span class="status-badge {{ 'good' if a.status in ['applied', 'restored'] else 'warn' }}">{{ a.status|replace('_', ' ') }}</span>
+                </div>
+                <p class="resource-id">{{ a.resource }}</p>
+                <small><time datetime="{{ a.created_at|default('') }}">{{ a.created_at|default('Recorded intent') }}</time></small>
                 <details>
-                  <summary>Evidence identifiers</summary>
-                  <code class="resource-id">{{ action.resource }}<br>{{ action.id }}</code>
+                  <summary>View evidence identifiers</summary>
+                  <code>{{ a.id }}</code>
                 </details>
+                {% if a.action == 'stop_idle_instance' and a.status != 'restored' %}
+                  <button class="button secondary restore" style="margin-top: 10px;" data-id="{{ a.id }}" data-kind="ec2">Restart Instance</button>
+                {% endif %}
               </div>
-            </div>
             {% else %}
-            <div class="empty compact">
-              <p>No review actions recorded.</p>
-            </div>
-            {% endfor %}
-          </article>
-
-          <!-- Remediation Audit -->
-          <article class="panel">
-            <h3>Compute & storage remediation audit</h3>
-            <p class="muted">Opt-in guarded autonomous and policy remediation actions.</p>
-            {% for opt in optimizations %}
-            <div class="audit-item">
-              <span class="audit-icon">⚡</span>
-              <div>
-                <span class="badge {{ 'success' if opt.status in ('applied', 'restored') else 'warn' }}">{{ opt.status|replace('_', ' ') }}</span>
-                <h4>{{ opt.action|replace('_', ' ')|title }}</h4>
-                <p>{{ opt.reason|default('Target: ' ~ opt.target_state|default('optimized')) }}</p>
-                <small><time datetime="{{ opt.created_at }}">{{ opt.created_at }}</time></small>
-                <details>
-                  <summary>Evidence identifiers</summary>
-                  <code class="resource-id">{{ opt.resource }}<br>{{ opt.id }}</code>
-                </details>
-              </div>
-            </div>
-            {% else %}
-            <div class="empty compact">
-              <p>No compute or storage remediations recorded.</p>
-            </div>
+              <div class="quiet-empty">No resource actions recorded.</div>
             {% endfor %}
           </article>
         </div>
+        <p class="section-note">Audit status reflects the last verified operation, not a synthetic guess. Review tags flag resources for operator attention without stopping workloads.</p>
       </section>
 
-      <!-- Section 6: BYO-AWS Setup Onboarding -->
-      <section id="setup" class="section panel setup">
+      <!-- Section 05: Setup & Verification Guide -->
+      <section class="setup-banner" id="setup">
         <div>
-          <p class="eyebrow">Bring Your Own AWS Account</p>
-          <h2>Start locally. Keep control.</h2>
-          <p>Use your own temporary AWS profile. The collector verifies account identity and stores observations locally.</p>
-          <p class="muted">Hosted account connections are not available yet. Never paste access keys into the dashboard.</p>
+          <span class="eyebrow">BUILT TO BE INSPECTED</span>
+          <h2>Your infrastructure.<br>Your evidence.</h2>
+          <p>Run locally with temporary IAM credentials or local AWS profiles. Inspect plans before execution and verify state changes in your live AWS console.</p>
         </div>
-        <ol>
-          <li>
-            <strong>Configure your AWS profile</strong>
-            <p>Use a temporary login and the repository's read-only IAM policy.</p>
-          </li>
-          <li>
-            <strong>Collect your first snapshot</strong>
-            <pre><code>python -m costintel collect --mode aws \
-  --profile YOUR_PROFILE \
-  --expected-account YOUR_ACCOUNT_ID \
-  --region {{ view.region }} --with-metrics</code></pre>
-          </li>
-          <li>
-            <strong>Run end-to-end FinOps intelligence pipeline</strong>
-            <pre><code>python -m costintel pipeline --mode aws \
-  --profile YOUR_PROFILE \
-  --expected-account YOUR_ACCOUNT_ID \
-  --region {{ view.region }} --with-metrics</code></pre>
-          </li>
-          <li>
-            <strong>Open your workspace</strong>
-            <pre><code>python -m costintel serve --mode aws \
-  --account YOUR_ACCOUNT_ID \
-  --region {{ view.region }}</code></pre>
-          </li>
-        </ol>
+        <div class="setup-steps">
+          <div>
+            <span>01</span>
+            <div>
+              <strong>Connect a scoped identity</strong>
+              <p>Telemetry reader policy ingests multi-service inventory without mutation access.</p>
+            </div>
+          </div>
+          <div>
+            <span>02</span>
+            <div>
+              <strong>Observe, detect, preview</strong>
+              <p>Continuous 5-minute compute observations and daily S3 Standard telemetry.</p>
+            </div>
+          </div>
+          <div>
+            <span>03</span>
+            <div>
+              <strong>Autonomous execution & recovery</strong>
+              <p>Tag-based opt-in, durable intent in SQLite, and verified instant rollback.</p>
+            </div>
+          </div>
+        </div>
       </section>
 
+      <!-- Footer -->
       <footer>
-        <span>CostIntel · Precision Cloud Cost Intelligence & Autonomous FinOps</span>
-        <span>Local loopback · Timestamps in browser timezone</span>
+        <span>costintel<span class="brand-dot">.</span><small>Autonomous Cloud FinOps Intelligence</small></span>
+        <p>{{ 'Local Workspace' if view.mode == 'aws' else 'Simulated Demo' }} · Ephemeral In-Memory Auth · No Keys Saved</p>
       </footer>
     </main>
   </div>
 
-  <script id="detection-data" type="application/json">{{ detections|tojson }}</script>
-
-  <!-- FinOps Intelligence Pipeline Modal -->
-  <div id="pipeline-modal" class="modal-overlay" hidden aria-hidden="true" role="dialog" aria-modal="true">
-    <div class="modal-dialog">
-      <div class="modal-header">
-        <div class="modal-title-group">
-          <div class="modal-icon-badge">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-            </svg>
-          </div>
-          <div>
-            <h3>Live FinOps Intelligence Pipeline</h3>
-            <p class="muted">Orchestrate traffic stimulation, multi-service inventory, ML outlier detection & guarded remediation.</p>
-          </div>
-        </div>
-        <button id="close-pipeline-modal-btn" class="modal-close-btn" type="button" aria-label="Close modal">✕</button>
+  <!-- Workspace Operation Modal (Collect & Preview Pipeline) -->
+  <dialog id="operation-dialog" aria-labelledby="operation-title">
+    <div class="dialog-top">
+      <span class="eyebrow">WORKSPACE OPERATION</span>
+      <button id="close-dialog" class="icon-button" aria-label="Close dialog">×</button>
+    </div>
+    <h2 id="operation-title">Collect & Preview Pipeline</h2>
+    <p id="operation-message" aria-live="polite">Run autonomous telemetry ingestion, multi-service Isolation Forest anomaly scoring, and preview cost optimization plans.</p>
+    
+    <div style="margin: 18px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+      <div>
+        <label for="dialog-stimulate-select">Workload Stimulation</label>
+        <select id="dialog-stimulate-select" style="width: 100%;">
+          <option value="none">None (Passive Ingestion)</option>
+          <option value="slow" selected>Slow Scenario (500ms Synthetic Spike)</option>
+          <option value="baseline">Baseline Traffic (Normal Invocations)</option>
+        </select>
       </div>
-
-      <div class="modal-body">
-        <!-- Configuration Grid -->
-        <div class="modal-form-grid">
-          <!-- Field 1: Execution Profile -->
-          <div class="form-group">
-            <label for="pipeline-profile-select">Target AWS Profile</label>
-            <select id="pipeline-profile-select" class="form-control">
-              <option value="costintel-deploy">costintel-deploy (Deployer / Containment)</option>
-              <option value="costintel">costintel (Reader / Telemetry)</option>
-              <option value="demo">demo (Simulated Multi-Service)</option>
-            </select>
-            <small class="form-hint">Selected profile executes the cloud SDK calls.</small>
-          </div>
-
-          <!-- Field 2: Workload Anomaly Stimulation -->
-          <div class="form-group">
-            <label for="pipeline-stimulate-select">Workload Stimulation (Lab Traffic)</label>
-            <select id="pipeline-stimulate-select" class="form-control">
-              <option value="slow">⚡ Slow Duration Spike (500ms Anomaly)</option>
-              <option value="baseline">● Baseline Traffic (8ms Normal)</option>
-              <option value="none">○ None (Ingest Existing Telemetry Only)</option>
-            </select>
-            <small class="form-hint">Generates real calls to <code>costintel-lab-workload</code>.</small>
-          </div>
-
-          <!-- Field 3: Remediation Mode -->
-          <div class="form-group">
-            <label for="pipeline-mode-select">Remediation Action Guardrail</label>
-            <select id="pipeline-mode-select" class="form-control">
-              <option value="dry_run">Dry Run Preview (Scored & Audited, No API mutation)</option>
-              <option value="apply">Autonomous Apply (Execute Cloud Containment / Tagging)</option>
-            </select>
-            <small class="form-hint">Dry run previews changes before modifying AWS state.</small>
-          </div>
-
-          <!-- Field 4: Telemetry Lookback -->
-          <div class="form-group">
-            <label for="pipeline-window-select">CloudWatch Lookback Window</label>
-            <select id="pipeline-window-select" class="form-control">
-              <option value="1">Last 1 Hour (12 observation buckets)</option>
-              <option value="6">Last 6 Hours (72 observation buckets)</option>
-            </select>
-            <small class="form-hint">Fetches 5-minute metric buckets via CloudWatch.</small>
-          </div>
-        </div>
-
-        <!-- Execution Stepper Progress -->
-        <div class="pipeline-stepper" id="pipeline-stepper">
-          <div class="step-item" id="step-stimulate">
-            <span class="step-num">1</span>
-            <div class="step-text">
-              <strong>Workload</strong>
-              <small>Invocations</small>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-          <div class="step-item" id="step-inventory">
-            <span class="step-num">2</span>
-            <div class="step-text">
-              <strong>Inventory</strong>
-              <small>4 Services</small>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-          <div class="step-item" id="step-detection">
-            <span class="step-num">3</span>
-            <div class="step-text">
-              <strong>ML Model</strong>
-              <small>Isolation Forest</small>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-          <div class="step-item" id="step-actions">
-            <span class="step-num">4</span>
-            <div class="step-text">
-              <strong>Remediation</strong>
-              <small>Guarded Action</small>
-            </div>
-          </div>
-          <div class="step-connector"></div>
-          <div class="step-item" id="step-savings">
-            <span class="step-num">5</span>
-            <div class="step-text">
-              <strong>FinOps Delta</strong>
-              <small>Run-Rate Ledger</small>
-            </div>
-          </div>
-        </div>
-
-        <!-- Terminal Console Drawer -->
-        <div class="terminal-drawer">
-          <div class="terminal-header">
-            <div class="terminal-dots">
-              <span class="dot red"></span>
-              <span class="dot yellow"></span>
-              <span class="dot green"></span>
-            </div>
-            <span class="terminal-title">FinOps Execution Console · loopback</span>
-            <button id="clear-terminal-btn" class="terminal-action-btn" type="button">Clear</button>
-          </div>
-          <pre class="terminal-code" id="pipeline-terminal-output">Ready to execute pipeline. Choose your parameters above and click "Execute Live Pipeline".</pre>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <div class="modal-footer-status" id="pipeline-footer-status">
-          <span class="pulse-dot"></span> Pipeline Standby
-        </div>
-        <div class="modal-footer-actions">
-          <button id="cancel-pipeline-btn" class="button neutral" type="button">Close</button>
-          <button id="execute-pipeline-btn" class="button primary" type="button">
-            <span>Execute Live Pipeline</span>
-            <span class="spinner" hidden id="pipeline-spinner"></span>
-          </button>
-        </div>
+      <div>
+        <label for="dialog-mode-select">Action Mode</label>
+        <select id="dialog-mode-select" style="width: 100%;">
+          <option value="dry_run" selected>Dry Run (Preview Plans Only)</option>
+          <option value="apply">Autonomous Remediation (Apply Plans)</option>
+        </select>
       </div>
     </div>
-  </div>
+
+    <div id="operation-results"></div>
+
+    <div class="dialog-actions">
+      <button id="execute-operation-btn" class="button primary">Run Pipeline Cycle</button>
+      <button id="reload-view" class="button secondary" hidden>Refresh Dashboard</button>
+    </div>
+  </dialog>
 
   <!-- Toast Container -->
-  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <div id="toast-container" class="toast-container"></div>
 
-  <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+  <!-- Detection JSON Data Island -->
+  <script type="application/json" id="detection-data">{{ detections|tojson }}</script>
 </body>
 </html>

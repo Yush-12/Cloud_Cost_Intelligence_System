@@ -81,7 +81,9 @@ def idle_ec2_plan(store, account, region, threshold_cpu=2.0, now=None):
             continue
         instance_id = res['resource_id']
         points = store.history('local', 'aws', account, region, instance_id, 'CPUUtilization')
-        if not points:
+        if not points or len(points) < 3:
+            continue
+        if any(p['value'] < 0 or p['value'] > 100 for p in points):
             continue
         avg_cpu = round(sum(p['value'] for p in points) / len(points), 4)
         if avg_cpu <= threshold_cpu:

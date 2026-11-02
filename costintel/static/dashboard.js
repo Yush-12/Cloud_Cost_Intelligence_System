@@ -1,18 +1,28 @@
 /* ==========================================================================
-   CostIntel Telemetry & Anomaly Explorer
-   Datadog/Grafana-style time-series chart with scrubber, area fill, and ML HUD
+   CostIntel Autonomous FinOps Console
+   Telemetry Explorer, Retractable Layout, Guarded Execution, & Verified Rollback
    ========================================================================== */
 
-const dateLabel = value => new Date(value).toLocaleString(undefined, {
-  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
-});
+const dateLabel = value => {
+  if (!value) return '—';
+  return new Date(value).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+};
 
 document.querySelectorAll('time[datetime]').forEach(el => {
-  el.title = el.dateTime;
-  el.textContent = dateLabel(el.dateTime);
+  if (el.dateTime) {
+    el.title = el.dateTime;
+    el.textContent = dateLabel(el.dateTime);
+  }
 });
 
-const detections = JSON.parse(document.querySelector('#detection-data').textContent);
+const detectionsDataEl = document.querySelector('#detection-data');
+const detections = detectionsDataEl ? JSON.parse(detectionsDataEl.textContent || '[]') : [];
 const selector = document.querySelector('#metric-select');
 const rangeSelect = document.querySelector('#range-select');
 
@@ -24,10 +34,10 @@ const labels = {
 };
 
 const descriptions = {
-  outlier: 'The evaluated observation differs from the learned baseline. Inspect the evidence before choosing an action.',
-  within_baseline: 'The evaluated sample was not flagged. This does not prove that the workload is healthy.',
-  insufficient_data: 'More consecutive observations are needed. Missing buckets break the training baseline.',
-  insufficient_variation: 'The baseline has fewer than three distinct values. No model score is reported.'
+  outlier: 'The evaluated observation differs significantly from the learned baseline. Inspect the evidence before choosing an autonomous action.',
+  within_baseline: 'The evaluated sample is within learned baseline tolerances. Workload runtime bounds are stable.',
+  insufficient_data: 'More consecutive observations are required to formulate a robust isolation forest baseline.',
+  insufficient_variation: 'Baseline variance is zero or constant. Model requires dynamic variation before calculating score.'
 };
 
 const svgNS = 'http://www.w3.org/2000/svg';
@@ -38,77 +48,86 @@ function node(tag, attrs, text) {
   return el;
 }
 
+/* ==========================================================================
+   Interactive Time-Series SVG Chart
+   ========================================================================== */
+
 function render() {
-  if (!selector) return;
+  if (!selector || !detections.length) return;
   const item = detections[Number(selector.value)];
   if (!item) return;
 
   const svg = document.querySelector('#chart');
+  if (!svg) return;
   svg.replaceChildren();
 
-  const width = Math.max(320, Math.round(svg.getBoundingClientRect().width));
-  svg.setAttribute('viewBox', '0 0 ' + width + ' 280');
+  const width = Math.max(320, Math.round(svg.getBoundingClientRect().width) || 720);
+  svg.setAttribute('viewBox', '0 0 ' + width + ' 250');
 
-  // Define gradients and filter defs
+  // SVG Area Fill Gradient
   const defs = node('defs', {});
   const grad = node('linearGradient', { id: 'area-gradient', x1: '0', y1: '0', x2: '0', y2: '1' });
-  grad.append(node('stop', { offset: '0%', 'stop-color': '#6366f1', 'stop-opacity': '0.4' }));
-  grad.append(node('stop', { offset: '100%', 'stop-color': '#6366f1', 'stop-opacity': '0.0' }));
+  grad.append(node('stop', { offset: '0%', 'stop-color': 'var(--accent)', 'stop-opacity': '0.35' }));
+  grad.append(node('stop', { offset: '100%', 'stop-color': 'var(--accent)', 'stop-opacity': '0.0' }));
   defs.append(grad);
   svg.append(defs);
 
-  let pts = item.points;
-  const range = rangeSelect.value;
+  let pts = item.points || [];
+  const range = rangeSelect ? rangeSelect.value : 'all';
   if (range !== 'all' && pts.length) {
     const end = Date.parse(pts[pts.length - 1].timestamp);
     pts = pts.filter(p => Date.parse(p.timestamp) >= end - Number(range) * 3600000);
   }
 
-  const latest = item.points[item.points.length - 1];
-  document.querySelector('#metric-title').textContent = item.metric + ' · latest sample';
-  document.querySelector('#metric-value').textContent = latest
-    ? Number(latest.value).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' ' +
-      ({ Milliseconds: 'ms', Count: 'count', Percent: '%', Bytes: 'bytes' }[latest.unit] || latest.unit)
-    : 'No observations';
-
+  const latest = item.points && item.points.length ? item.points[item.points.length - 1] : null;
+  const metricTitle = document.querySelector('#metric-title');
+  const metricVal = document.querySelector('#metric-value');
   const badge = document.querySelector('#metric-status');
-  badge.textContent = labels[item.status] || item.status;
-  badge.className = 'badge ' + (item.status === 'outlier' ? 'warn' : 'neutral');
 
-  document.querySelector('#evidence-heading').textContent = labels[item.status] || item.status;
-  document.querySelector('#evidence-description').textContent = descriptions[item.status] || '';
-  document.querySelector('#baseline-count').textContent = item.baseline_points + ' / ' + item.required_baseline_points + ' minimum';
-  document.querySelector('#decision-score').textContent = item.score === null ? 'Not evaluated' : item.score.toFixed(4);
-  document.querySelector('#sample-time').textContent = item.sample_timestamp ? dateLabel(item.sample_timestamp) : 'No sample';
-
-  // Confidence bar
-  const confBar = document.querySelector('.confidence-fill');
-  if (confBar) {
-    if (item.score !== null) {
-      const pct = Math.min(100, Math.max(10, Math.round((Math.abs(item.score) / 0.5) * 100)));
-      confBar.style.width = pct + '%';
-      confBar.className = 'confidence-fill ' + (item.status === 'outlier' ? 'outlier' : '');
-    } else {
-      confBar.style.width = '0%';
-    }
+  if (metricTitle) metricTitle.textContent = item.metric + ' · latest sample';
+  if (metricVal) {
+    metricVal.textContent = latest
+      ? Number(latest.value).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' ' +
+        ({ Milliseconds: 'ms', Count: 'reqs', Percent: '%', Bytes: 'B' }[latest.unit] || latest.unit)
+      : 'No observations';
   }
 
-  // Update table
+  if (badge) {
+    badge.textContent = labels[item.status] || item.status;
+    badge.className = 'status-badge ' + (item.status === 'outlier' ? 'warn' : 'good');
+  }
+
+  const evHeading = document.querySelector('#evidence-heading');
+  const evDesc = document.querySelector('#evidence-description');
+  const baseCount = document.querySelector('#baseline-count');
+  const decScore = document.querySelector('#decision-score');
+  const sampTime = document.querySelector('#sample-time');
+
+  if (evHeading) evHeading.textContent = labels[item.status] || item.status;
+  if (evDesc) evDesc.textContent = descriptions[item.status] || '';
+  if (baseCount) baseCount.textContent = (item.baseline_points || 0) + ' / ' + (item.required_baseline_points || 6) + ' points';
+  if (decScore) decScore.textContent = item.score === null ? 'Not evaluated' : item.score.toFixed(4);
+  if (sampTime) sampTime.textContent = item.sample_timestamp ? dateLabel(item.sample_timestamp) : 'No sample';
+
+  // Table population
   const tbody = document.querySelector('#chart-table');
-  tbody.replaceChildren();
-  pts.forEach(p => {
-    const tr = document.createElement('tr');
-    [dateLabel(p.timestamp), p.value, p.unit].forEach(v => {
-      const td = document.createElement('td');
-      td.textContent = v;
-      tr.append(td);
+  if (tbody) {
+    tbody.replaceChildren();
+    pts.forEach(p => {
+      const tr = document.createElement('tr');
+      [dateLabel(p.timestamp), Number(p.value).toFixed(2), p.unit].forEach(v => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        tr.append(td);
+      });
+      tbody.append(tr);
     });
-    tbody.append(tr);
-  });
+  }
 
   if (!pts.length) {
-    svg.append(node('text', { x: width / 2, y: 140, 'text-anchor': 'middle', class: 'chart-label' }, 'No observations in this window'));
-    document.querySelector('#chart-caption').textContent = 'Missing observations are not zero usage.';
+    svg.append(node('text', { x: width / 2, y: 125, 'text-anchor': 'middle', class: 'chart-label' }, 'No observations in this window'));
+    const cap = document.querySelector('#chart-caption');
+    if (cap) cap.textContent = 'Missing observations are not treated as zero usage.';
     return;
   }
 
@@ -119,14 +138,14 @@ function render() {
   const upper = Math.max(...values) * 1.15 || 1;
   const lower = Math.min(0, ...values);
   const x = t => 56 + (t - minT) / (maxT - minT || 1) * (width - 80);
-  const y = v => 235 - (v - lower) / (upper - lower) * 210;
+  const y = v => 210 - (v - lower) / (upper - lower) * 180;
 
-  // Grid lines & Y-axis labels
+  // Horizontal Grid Lines & Y-Axis Labels
   for (let i = 0; i <= 4; i++) {
     const val = lower + (upper - lower) * i / 4;
     const yy = y(val);
     svg.append(node('line', { x1: 56, x2: width - 24, y1: yy, y2: yy, class: 'chart-line-grid' }));
-    svg.append(node('text', { x: 46, y: yy + 3.5, 'text-anchor': 'end', class: 'chart-label' }, val.toLocaleString(undefined, { maximumFractionDigits: 1 })));
+    svg.append(node('text', { x: 46, y: yy + 3.5, 'text-anchor': 'end' }, val.toLocaleString(undefined, { maximumFractionDigits: 1 })));
   }
 
   // Segmented polyline and area polygon
@@ -138,13 +157,13 @@ function render() {
       const baselineY = y(0);
       const polyPts = [firstX + ',' + baselineY, ...segment, lastX + ',' + baselineY].join(' ');
       svg.append(node('polygon', { points: polyPts, class: 'chart-area-fill' }));
-      svg.append(node('polyline', { points: segment.join(' '), fill: 'none', class: 'chart-series-line' }));
+      svg.append(node('polyline', { points: segment.join(' '), class: 'chart-series-line' }));
     }
     segment = [];
   };
 
   pts.forEach((p, i) => {
-    if (i && times[i] - times[i - 1] !== p.period_seconds * 1000) flush();
+    if (i && times[i] - times[i - 1] !== (p.period_seconds || 300) * 1000) flush();
     segment.push(x(times[i]) + ',' + y(p.value));
   });
   flush();
@@ -155,7 +174,7 @@ function render() {
     const dot = node('circle', {
       cx: x(times[i]),
       cy: y(p.value),
-      r: flagged ? 6 : 3,
+      r: flagged ? 5.5 : 3,
       class: 'chart-point' + (flagged ? ' outlier' : '')
     });
     dot.append(node('title', {}, dateLabel(p.timestamp) + ' · ' + p.value + ' ' + p.unit + (flagged ? ' (Outlier)' : '')));
@@ -163,40 +182,51 @@ function render() {
   });
 
   // X-axis timestamps
-  [minT, ...(maxT !== minT ? (width < 450 ? [maxT] : [minT + (maxT - minT) / 2, maxT]) : [])].forEach((t, i, all) => {
+  [minT, ...(maxT !== minT ? [minT + (maxT - minT) / 2, maxT] : [])].forEach((t, i, all) => {
     svg.append(node('text', {
       x: x(t),
-      y: 265,
-      'text-anchor': i === 0 ? 'start' : i === all.length - 1 ? 'end' : 'middle',
-      class: 'chart-label'
+      y: 236,
+      'text-anchor': i === 0 ? 'start' : i === all.length - 1 ? 'end' : 'middle'
     }, new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })));
   });
 
-  document.querySelector('#chart-caption').textContent = pts.length + ' observations (' + pts[0].unit + ') from ' + dateLabel(pts[0].timestamp) + ' to ' + dateLabel(pts[pts.length - 1].timestamp);
-
-  // Sync range buttons
-  document.querySelectorAll('.range-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.range === rangeSelect.value);
-  });
+  const cap = document.querySelector('#chart-caption');
+  if (cap) {
+    cap.textContent = pts.length + ' observations (' + pts[0].unit + ') from ' + dateLabel(pts[0].timestamp) + ' to ' + dateLabel(pts[pts.length - 1].timestamp);
+  }
 }
 
 if (selector) {
   selector.addEventListener('change', render);
-  rangeSelect.addEventListener('change', render);
-
-  // Range pill button triggers
-  document.querySelectorAll('.range-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      rangeSelect.value = btn.dataset.range;
-      render();
-    });
-  });
-
+  if (rangeSelect) rangeSelect.addEventListener('change', render);
   render();
-  new ResizeObserver(() => render()).observe(document.querySelector('.chart-wrap'));
+  const wrap = document.querySelector('.chart-wrap');
+  if (wrap) new ResizeObserver(() => render()).observe(wrap);
 }
 
-// Retractable Sidebar Logic
+// CSV Export
+const exportBtn = document.querySelector('#export');
+if (exportBtn && selector && detections.length) {
+  exportBtn.addEventListener('click', () => {
+    const item = detections[Number(selector.value)];
+    if (!item || !item.points) return;
+    const rows = [['timestamp', 'value', 'unit', 'statistic']];
+    item.points.forEach(p => rows.push([p.timestamp, p.value, p.unit, p.statistic || 'Average']));
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map(e => e.join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `costintel_${item.metric}_${item.resource_id.split(':').pop()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  });
+}
+
+/* ==========================================================================
+   Retractable Sidebar Logic
+   ========================================================================== */
+
 const sidebarToggleBtn = document.querySelector('#sidebar-toggle-btn');
 const sidebarCollapseBtn = document.querySelector('#sidebar-collapse-btn');
 
@@ -205,19 +235,13 @@ function toggleSidebar() {
   try {
     localStorage.setItem('costintel-sidebar-collapsed', isCollapsed ? 'true' : 'false');
   } catch (_) {}
-  if (sidebarToggleBtn) {
-    sidebarToggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
-  }
-  // Allow CSS transition to complete then re-render chart to fit fullscreen width
-  setTimeout(() => {
-    render();
-  }, 260);
+  setTimeout(() => render(), 260);
 }
 
 if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', toggleSidebar);
 if (sidebarCollapseBtn) sidebarCollapseBtn.addEventListener('click', toggleSidebar);
 
-// Keyboard shortcuts: Ctrl+B (Toggle Sidebar), Ctrl+K (Search)
+// Global Keyboard Shortcuts (Ctrl+B, Ctrl+K)
 window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
     e.preventDefault();
@@ -233,36 +257,36 @@ window.addEventListener('keydown', e => {
   }
 });
 
-// Quick Search
-const search = document.querySelector('#resource-search');
-if (search) {
-  search.addEventListener('input', () => {
-    let shown = 0;
-    const q = search.value.toLowerCase().trim();
-    document.querySelectorAll('#resource-rows tr').forEach(row => {
-      const match = !q || row.textContent.toLowerCase().includes(q);
-      row.hidden = !match;
-      if (match) shown++;
-    });
-    const emptyMsg = document.querySelector('#search-empty');
-    if (emptyMsg) emptyMsg.hidden = shown !== 0;
+/* ==========================================================================
+   Resource Search & Service Filter
+   ========================================================================== */
+
+const resourceSearch = document.querySelector('#resource-search');
+const serviceFilter = document.querySelector('#service-filter');
+
+function filterResources() {
+  const q = (resourceSearch ? resourceSearch.value : '').toLowerCase().trim();
+  const svc = serviceFilter ? serviceFilter.value : 'all';
+  let matchCount = 0;
+
+  document.querySelectorAll('#resource-rows tr').forEach(row => {
+    const rowSvc = row.dataset.service || '';
+    const matchesService = svc === 'all' || rowSvc === svc;
+    const matchesQuery = !q || row.textContent.toLowerCase().includes(q);
+    const visible = matchesService && matchesQuery;
+    row.hidden = !visible;
+    if (visible) matchCount++;
   });
+
+  const emptyMsg = document.querySelector('#search-empty');
+  if (emptyMsg) emptyMsg.hidden = matchCount > 0;
 }
 
-// Intersection Observer for Active Nav link
-const links = document.querySelectorAll('nav a');
-const observer = new IntersectionObserver(entries => {
-  entries.forEach(entry => {
-    if (entry.isIntersecting) {
-      links.forEach(a => a.classList.toggle('active', a.hash === '#' + entry.target.id));
-    }
-  });
-}, { rootMargin: '-10% 0px -65% 0px' });
-
-document.querySelectorAll('main section[id]').forEach(s => observer.observe(s));
+if (resourceSearch) resourceSearch.addEventListener('input', filterResources);
+if (serviceFilter) serviceFilter.addEventListener('change', filterResources);
 
 /* ==========================================================================
-   Interactive FinOps Console, Profile Switcher & Toast Notifications
+   Toast Notification System
    ========================================================================== */
 
 function showToast(title, message, type = 'info', duration = 4000) {
@@ -270,15 +294,8 @@ function showToast(title, message, type = 'info', duration = 4000) {
   if (!container) return;
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  const icons = {
-    success: '✓',
-    warn: '⚡',
-    error: '✕',
-    info: 'ℹ'
-  };
   toast.innerHTML = `
-    <span class="toast-icon">${icons[type] || 'ℹ'}</span>
-    <div class="toast-content">
+    <div style="flex: 1;">
       <strong>${title}</strong>
       <p>${message}</p>
     </div>
@@ -286,360 +303,134 @@ function showToast(title, message, type = 'info', duration = 4000) {
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateY(8px) scale(0.95)';
+    toast.style.transform = 'translateY(8px)';
+    toast.style.transition = 'all 0.2s ease';
     setTimeout(() => toast.remove(), 250);
   }, duration);
 }
 
-// Profile Switcher Menu
-const profileContainer = document.querySelector('.profile-dropdown-container');
-const profileBtn = document.querySelector('#profile-switcher-btn');
-const profileMenu = document.querySelector('#profile-dropdown-menu');
-const profileList = document.querySelector('#profile-menu-items');
-const profileLabel = document.querySelector('#current-profile-label');
-const pipelineProfileSelect = document.querySelector('#pipeline-profile-select');
+/* ==========================================================================
+   Operation Modal (Collect & Preview Pipeline)
+   ========================================================================== */
 
-async function loadProfiles() {
-  try {
-    const res = await fetch('/api/profiles');
-    if (!res.ok) return;
-    const data = await res.json();
-    const active = data.active || {};
-    const profiles = data.profiles || [];
+const dialog = document.querySelector('#operation-dialog');
+const openDialogBtns = document.querySelectorAll('#collect, [data-collect]');
+const closeDialogBtn = document.querySelector('#close-dialog');
+const execOpBtn = document.querySelector('#execute-operation-btn');
+const reloadViewBtn = document.querySelector('#reload-view');
+const opResults = document.querySelector('#operation-results');
 
-    if (profileLabel) {
-      if (active.mode === 'demo') {
-        profileLabel.textContent = 'Demo Sandbox';
-      } else {
-        profileLabel.textContent = active.profile || active.account_id;
-      }
-    }
-
-    if (profileList) {
-      profileList.innerHTML = '';
-      profiles.forEach(p => {
-        const item = document.createElement('div');
-        item.className = 'profile-menu-item' + (p.active ? ' active' : '');
-        item.innerHTML = `
-          <div class="profile-item-row">
-            <span class="profile-item-name">${p.name}</span>
-            <span class="profile-item-badge ${p.active ? 'active-badge' : ''}">${p.active ? 'Active' : p.type}</span>
-          </div>
-          <span class="profile-item-role">${p.role}</span>
-        `;
-        item.addEventListener('click', () => switchProfile(p.name, p.type));
-        profileList.appendChild(item);
-      });
-    }
-
-    // Populate modal profile select
-    if (pipelineProfileSelect) {
-      pipelineProfileSelect.innerHTML = '';
-      profiles.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.name;
-        opt.textContent = `${p.name} (${p.type === 'aws' ? (p.name.includes('deploy') ? 'Deployer / Containment' : 'Reader / Telemetry') : 'Simulated'})`;
-        if (p.active) opt.selected = true;
-        pipelineProfileSelect.appendChild(opt);
-      });
-    }
-  } catch (err) {
-    console.error('Failed to load profiles:', err);
+function openOperationDialog() {
+  if (!dialog) return;
+  if (opResults) opResults.replaceChildren();
+  if (reloadViewBtn) reloadViewBtn.hidden = true;
+  if (execOpBtn) {
+    execOpBtn.disabled = false;
+    execOpBtn.textContent = 'Run Pipeline Cycle';
   }
+  dialog.showModal();
 }
 
-async function switchProfile(profileName, profileType) {
-  closeProfileMenu();
-  showToast('Switching Profile', `Connecting to ${profileName}...`, 'info', 2000);
-  try {
-    const res = await fetch('/api/profiles/switch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile: profileName, mode: profileType })
-    });
-    const result = await res.json();
-    if (!res.ok) {
-      showToast('Profile Switch Failed', result.error || 'Connection error', 'error', 5000);
-      return;
-    }
-    showToast('Connected', result.message, 'success', 2500);
-    setTimeout(() => {
-      window.location.reload();
-    }, 800);
-  } catch (err) {
-    showToast('Switch Error', err.message, 'error', 4000);
-  }
+function closeOperationDialog() {
+  if (dialog) dialog.close();
 }
 
-function toggleProfileMenu() {
-  if (!profileMenu) return;
-  const isHidden = profileMenu.hidden;
-  profileMenu.hidden = !isHidden;
-  if (profileContainer) profileContainer.classList.toggle('open', isHidden);
-}
+openDialogBtns.forEach(btn => btn.addEventListener('click', openOperationDialog));
+if (closeDialogBtn) closeDialogBtn.addEventListener('click', closeOperationDialog);
+if (reloadViewBtn) reloadViewBtn.addEventListener('click', () => window.location.reload());
 
-function closeProfileMenu() {
-  if (profileMenu) profileMenu.hidden = true;
-  if (profileContainer) profileContainer.classList.remove('open');
-}
+if (execOpBtn) {
+  execOpBtn.addEventListener('click', async () => {
+    const stimulate = document.querySelector('#dialog-stimulate-select')?.value || 'none';
+    const mode = document.querySelector('#dialog-mode-select')?.value || 'dry_run';
+    const isApply = mode === 'apply';
 
-if (profileBtn) {
-  profileBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleProfileMenu();
-  });
-}
+    execOpBtn.disabled = true;
+    execOpBtn.textContent = 'Running Ingestion & Isolation Forest...';
 
-document.addEventListener('click', (e) => {
-  if (profileContainer && !profileContainer.contains(e.target)) {
-    closeProfileMenu();
-  }
-});
-
-// Modal Logic
-const pipelineModal = document.querySelector('#pipeline-modal');
-const openModalBtn = document.querySelector('#open-pipeline-btn');
-const quickRunPipelineBtn = document.querySelector('#quick-run-pipeline-btn');
-const closeModalBtn = document.querySelector('#close-pipeline-modal-btn');
-const cancelModalBtn = document.querySelector('#cancel-pipeline-btn');
-const executePipelineBtn = document.querySelector('#execute-pipeline-btn');
-const pipelineSpinner = document.querySelector('#pipeline-spinner');
-const terminalOutput = document.querySelector('#pipeline-terminal-output');
-const clearTerminalBtn = document.querySelector('#clear-terminal-btn');
-const footerStatus = document.querySelector('#pipeline-footer-status');
-
-const steps = [
-  document.querySelector('#step-stimulate'),
-  document.querySelector('#step-inventory'),
-  document.querySelector('#step-detection'),
-  document.querySelector('#step-actions'),
-  document.querySelector('#step-savings')
-];
-
-function updateStepper(currentIndex) {
-  steps.forEach((step, idx) => {
-    if (!step) return;
-    if (idx < currentIndex) {
-      step.className = 'step-item complete';
-    } else if (idx === currentIndex) {
-      step.className = 'step-item active';
-    } else {
-      step.className = 'step-item';
-    }
-  });
-}
-
-function openModal() {
-  if (!pipelineModal) return;
-  pipelineModal.hidden = false;
-  document.body.style.overflow = 'hidden';
-}
-
-function closeModal() {
-  if (!pipelineModal) return;
-  pipelineModal.hidden = true;
-  document.body.style.overflow = '';
-}
-
-if (openModalBtn) openModalBtn.addEventListener('click', openModal);
-if (quickRunPipelineBtn) quickRunPipelineBtn.addEventListener('click', openModal);
-if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
-if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeModal);
-
-if (pipelineModal) {
-  pipelineModal.addEventListener('click', (e) => {
-    if (e.target === pipelineModal) closeModal();
-  });
-}
-
-if (clearTerminalBtn && terminalOutput) {
-  clearTerminalBtn.addEventListener('click', () => {
-    terminalOutput.textContent = 'Terminal cleared. Ready for pipeline execution.';
-  });
-}
-
-// Pipeline Execution Runner
-async function runPipelineExecution() {
-  if (!executePipelineBtn) return;
-  const profile = pipelineProfileSelect ? pipelineProfileSelect.value : 'costintel-deploy';
-  const stimulate = document.querySelector('#pipeline-stimulate-select')?.value || 'none';
-  const modeVal = document.querySelector('#pipeline-mode-select')?.value || 'dry_run';
-  const windowHours = parseInt(document.querySelector('#pipeline-window-select')?.value || '1', 10);
-  const isApply = modeVal === 'apply';
-
-  executePipelineBtn.disabled = true;
-  if (pipelineSpinner) pipelineSpinner.hidden = false;
-  if (footerStatus) {
-    footerStatus.innerHTML = '<span class="pulse-dot"></span> Pipeline in progress...';
-  }
-
-  terminalOutput.textContent = `[${new Date().toLocaleTimeString()}] Starting CostIntel FinOps Intelligence Pipeline...\n`;
-  terminalOutput.textContent += `[CONFIG] Profile: ${profile} | Action Mode: ${isApply ? 'AUTONOMOUS APPLY' : 'DRY RUN'} | Stimulation: ${stimulate}\n`;
-
-  updateStepper(0);
-
-  try {
-    setTimeout(() => updateStepper(1), 800);
-    setTimeout(() => updateStepper(2), 2200);
-    setTimeout(() => updateStepper(3), 3600);
-    setTimeout(() => updateStepper(4), 4800);
-
-    const res = await fetch('/api/pipeline/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        apply: isApply,
-        stimulate: stimulate,
-        stimulate_count: 5,
-        profile: profile,
-        window_hours: windowHours
-      })
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.error || 'Pipeline execution failed');
+    if (opResults) {
+      opResults.innerHTML = '<pre>[PIPELINE START] Connecting to AWS telemetry APIs & running ML anomaly analysis...</pre>';
     }
 
-    updateStepper(5);
-    terminalOutput.textContent += `\n${data.summary}\n`;
-    if (data.logs && data.logs.length) {
-      terminalOutput.textContent += `\n--- EXECUTION AUDIT TRAIL ---\n` + data.logs.join('\n') + '\n';
-    }
-    terminalOutput.scrollTop = terminalOutput.scrollHeight;
-
-    if (footerStatus) {
-      footerStatus.innerHTML = '<span class="badge success">✓ Cycle Complete</span>';
-    }
-
-    showToast('Pipeline Cycle Complete', `Executed successfully. Est. monthly savings: -$${(data.est_monthly_savings || 14.31).toFixed(2)}/mo`, 'success', 5000);
-
-    setTimeout(() => {
-      window.location.reload();
-    }, 2800);
-  } catch (err) {
-    terminalOutput.textContent += `\n[PIPELINE FAILURE] ${err.message}\n`;
-    if (footerStatus) {
-      footerStatus.innerHTML = '<span class="badge warn">Execution Failed</span>';
-    }
-    showToast('Pipeline Failed', err.message, 'error', 6000);
-  } finally {
-    executePipelineBtn.disabled = false;
-    if (pipelineSpinner) pipelineSpinner.hidden = true;
-  }
-}
-
-if (executePipelineBtn) {
-  executePipelineBtn.addEventListener('click', runPipelineExecution);
-}
-
-// 1-Click Quick Action Triggers
-const quickStimulateBtn = document.querySelector('#quick-stimulate-btn');
-const quickRestoreBtn = document.querySelector('#quick-restore-btn');
-
-if (quickStimulateBtn) {
-  quickStimulateBtn.addEventListener('click', async () => {
-    quickStimulateBtn.disabled = true;
-    const originalText = quickStimulateBtn.innerHTML;
-    quickStimulateBtn.innerHTML = '⚡ Injecting 500ms Spike...';
     try {
-      const res = await fetch('/api/workload/stimulate', {
+      const res = await fetch('/api/pipeline/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario: 'slow', count: 5 })
+        body: JSON.stringify({
+          apply: isApply,
+          stimulate: stimulate,
+          stimulate_count: 5,
+          window_hours: 48
+        })
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to stimulate workload');
-      showToast('Anomaly Spike Injected', `Sent 5 slow invocations to ${data.result.function_name || 'costintel-lab-workload'}. Telemetry updated.`, 'warn', 4500);
-      setTimeout(() => window.location.reload(), 1500);
+      if (!res.ok) throw new Error(data.error || 'Pipeline run failed');
+
+      if (opResults) {
+        let text = data.summary || 'Pipeline cycle finished successfully.\n';
+        if (data.logs && data.logs.length) {
+          text += '\n--- EXECUTION AUDIT LOGS ---\n' + data.logs.join('\n');
+        }
+        opResults.innerHTML = `<pre>${text}</pre>`;
+      }
+
+      showToast('Pipeline Cycle Complete', `Executed successfully. Run-rate savings: -$${(data.est_monthly_savings || 0).toFixed(2)}/mo`, 'success', 4500);
+      if (reloadViewBtn) reloadViewBtn.hidden = false;
+      execOpBtn.textContent = 'Cycle Finished';
+
+      setTimeout(() => window.location.reload(), 2200);
     } catch (err) {
-      showToast('Stimulation Error', err.message, 'error', 5000);
-    } finally {
-      quickStimulateBtn.disabled = false;
-      quickStimulateBtn.innerHTML = originalText;
+      if (opResults) {
+        opResults.innerHTML = `<pre style="color: var(--amber);">[ERROR] ${err.message}</pre>`;
+      }
+      showToast('Pipeline Execution Error', err.message, 'error', 5000);
+      execOpBtn.disabled = false;
+      execOpBtn.textContent = 'Retry Pipeline Cycle';
     }
   });
 }
 
-if (quickRestoreBtn) {
-  quickRestoreBtn.addEventListener('click', async () => {
-    quickRestoreBtn.disabled = true;
-    const originalText = quickRestoreBtn.innerHTML;
-    quickRestoreBtn.innerHTML = '↺ Restoring Baseline...';
+/* ==========================================================================
+   Restoration / Rollback Buttons
+   ========================================================================== */
+
+document.querySelectorAll('.restore[data-id]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const actionId = btn.dataset.id;
+    const kind = btn.dataset.kind;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Restoring...';
+
     try {
       const res = await fetch('/api/workload/restore', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action_id: actionId, kind: kind })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to restore baseline');
-      showToast('Baseline Restored', data.message || 'Lambda concurrency restored to baseline. Autonomous throttles removed.', 'success', 4500);
-      setTimeout(() => window.location.reload(), 1500);
+      if (!res.ok) throw new Error(data.error || 'Failed to restore action');
+      showToast('Baseline Restored', data.message || `Action ${actionId} verified and restored.`, 'success', 4000);
+      setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
-      showToast('Restore Error', err.message, 'error', 5000);
-    } finally {
-      quickRestoreBtn.disabled = false;
-      quickRestoreBtn.innerHTML = originalText;
+      showToast('Restoration Failed', err.message, 'error', 5000);
+      btn.disabled = false;
+      btn.textContent = orig;
     }
   });
-}
+});
 
-// Disconnect / Sign out
-const logoutBtn = document.querySelector('#logout-btn');
-if (logoutBtn) {
-  logoutBtn.addEventListener('click', async () => {
+/* ==========================================================================
+   Logout / Purge Session
+   ========================================================================== */
+
+const logoutBtns = document.querySelectorAll('#logout, #logout-top');
+logoutBtns.forEach(btn => {
+  btn.addEventListener('click', async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (_) {}
     window.location.href = '/login';
   });
-}
-
-// Lab Resource Provisioner & Teardown Handlers
-const btnLabProvision = document.querySelector('#btn-lab-provision');
-const btnLabTeardown = document.querySelector('#btn-lab-teardown');
-
-if (btnLabProvision) {
-  btnLabProvision.addEventListener('click', async () => {
-    btnLabProvision.disabled = true;
-    const orig = btnLabProvision.innerHTML;
-    btnLabProvision.innerHTML = '🚀 Deploying Lab...';
-    try {
-      const res = await fetch('/api/lab/provision', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Provisioning failed');
-      const count = (data.resources || []).length;
-      showToast('Lab Resources Ready', `Verified/provisioned ${count} AWS lab assets. Refreshing inventory...`, 'success', 5000);
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (err) {
-      showToast('Provisioning Error', err.message, 'error', 6000);
-    } finally {
-      btnLabProvision.disabled = false;
-      btnLabProvision.innerHTML = orig;
-    }
-  });
-}
-
-if (btnLabTeardown) {
-  btnLabTeardown.addEventListener('click', async () => {
-    btnLabTeardown.disabled = true;
-    const orig = btnLabTeardown.innerHTML;
-    btnLabTeardown.innerHTML = '🗑️ Tearing Down...';
-    try {
-      const res = await fetch('/api/lab/teardown', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Teardown failed');
-      showToast('Lab Cleaned Up', data.message || 'Compute instances stopped and throttles cleared.', 'success', 5000);
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (err) {
-      showToast('Teardown Error', err.message, 'error', 6000);
-    } finally {
-      btnLabTeardown.disabled = false;
-      btnLabTeardown.innerHTML = orig;
-    }
-  });
-}
-
-// Initialize profiles on startup
-loadProfiles();
+});
