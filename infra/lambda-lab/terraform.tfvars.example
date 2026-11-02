@@ -1,0 +1,2 @@
+aws_profile = "costintel-deploy"
+account_id  = "REPLACE_WITH_12_DIGIT_ACCOUNT_ID"

@@ -14,6 +14,15 @@ build/
 # ─── Virtual Environment ──────────────────────────
 venv/
 .venv/
+.python/
+.uv-cache/
+.local-data/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+infra/lambda-lab/workload.zip
 env/
 .env.local
 

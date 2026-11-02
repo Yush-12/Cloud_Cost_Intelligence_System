@@ -1,0 +1,12 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadRegionalInventory",
+      "Effect": "Allow",
+      "Action": ["ec2:DescribeInstances", "lambda:ListFunctions", "cloudwatch:GetMetricStatistics"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-south-1"}}
+    }
+  ]
+}

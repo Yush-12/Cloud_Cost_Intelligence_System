@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageOnlyLabFunction",
+      "Effect": "Allow",
+      "Action": ["lambda:CreateFunction", "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:GetFunctionCodeSigningConfig", "lambda:GetPolicy", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:DeleteFunction", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource", "lambda:GetFunctionConcurrency", "lambda:InvokeFunction", "lambda:ListVersionsByFunction"],
+      "Resource": "arn:aws:lambda:ap-south-1:ACCOUNT_ID:function:costintel-lab-workload"
+    },
+    {
+      "Sid": "ManageOnlyLabRole",
+      "Effect": "Allow",
+      "Action": ["iam:CreateRole", "iam:GetRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:UpdateRole", "iam:TagRole", "iam:UntagRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole", "iam:GetRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy"],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/costintel-lab-execution"
+    },
+    {
+      "Sid": "PassOnlyLabRoleToLambda",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/costintel-lab-execution",
+      "Condition": {"StringEquals": {"iam:PassedToService": "lambda.amazonaws.com"}}
+    },
+    {
+      "Sid": "ManageOnlyLabLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy", "logs:ListTagsForResource", "logs:TagResource", "logs:UntagResource", "logs:ListTagsLogGroup"],
+      "Resource": ["arn:aws:logs:ap-south-1:ACCOUNT_ID:log-group:/aws/lambda/costintel-lab-workload", "arn:aws:logs:ap-south-1:ACCOUNT_ID:log-group:/aws/lambda/costintel-lab-workload:*"]
+    },
+    {
+      "Sid": "DiscoverLogGroupForTerraform",
+      "Effect": "Allow",
+      "Action": "logs:DescribeLogGroups",
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-south-1"}}
+    }
+  ]
+}

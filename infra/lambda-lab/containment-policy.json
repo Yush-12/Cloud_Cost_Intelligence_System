@@ -1,0 +1,9 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "ContainAndRestoreOnlyCostIntelLab",
+    "Effect": "Allow",
+    "Action": ["lambda:PutFunctionConcurrency", "lambda:DeleteFunctionConcurrency"],
+    "Resource": "arn:aws:lambda:ap-south-1:ACCOUNT_ID:function:costintel-lab-workload"
+  }]
+}
