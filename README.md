@@ -2,7 +2,7 @@
 
 CostIntel is a cloud usage intelligence lab for AWS. It discovers resources, collects CloudWatch observations, stores scoped time-series history, and uses Isolation Forest to flag unusual usage. The local dashboard lets an operator inspect evidence, review eligible actions, execute one action at a time, and verify or restore the result.
 
-**Current scope:** the local website connects to a real AWS account with temporary credentials and supports guarded actions. The [hosted website](https://cloud-cost-intelligence-system.vercel.app/) uses the same dashboard, Neon Postgres, and durable read-only AWS monitoring; hosted cloud actions remain disabled until durable recovery is implemented. An [optional billing connector](docs/BILLING_OPTION.md) is disabled by default because AWS charges for Cost Explorer API requests. Metric outliers and account-wide billed cost do **not** establish resource-level savings; billing reconciliation is not implemented.
+**Current scope:** the local website connects to a real AWS account with temporary credentials and supports guarded actions. The [hosted website](https://cloud-cost-intelligence-system.vercel.app/) offers both a clearly labeled synthetic tour and durable read-only AWS monitoring backed by Neon Postgres; hosted cloud actions remain disabled until durable recovery is implemented. An [optional billing connector](docs/BILLING_OPTION.md) is disabled by default because AWS charges for Cost Explorer API requests. Metric outliers and account-wide billed cost do **not** establish resource-level savings; billing reconciliation is not implemented.
 
 ## Run the website locally
 
@@ -41,7 +41,7 @@ The hosted website was live-verified in Mumbai on 2026-11-04 with temporary cred
 
 ## Deployments and costs
 
-The Vercel entry point now requires Neon Postgres and a stable session secret. It has no public demo fallback. See [hosted setup](docs/HOSTED_SETUP.md). Docker remains an offline demo and publishes port 5002 on the host loopback interface:
+The Vercel entry point requires Neon Postgres and a stable session secret for AWS workspaces. Its offline demo uses stateless synthetic data, makes no AWS calls, and cannot execute cloud actions. See [hosted setup](docs/HOSTED_SETUP.md). Docker remains an offline demo and publishes port 5002 on the host loopback interface:
 
 ```powershell
 docker compose up --build

@@ -43,6 +43,15 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
             session['csrf'] = secrets.token_urlsafe(32)
         return session['csrf']
 
+    def is_hosted_demo():
+        return deployment == 'hosted' and session.get('demo') is True
+
+    def selected_store(scope):
+        if deployment == 'hosted' and scope['mode'] == 'demo':
+            from costintel.demo_store import DemoStore
+            return DemoStore(scope['region'])
+        return store
+
     @app.before_request
     def protect():
         now = time.monotonic()
@@ -60,7 +69,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
             if not request.is_json or not isinstance(request.get_json(silent=True), dict):
                 return jsonify(error='JSON object required'), 400
         public = {'login_page', 'api_login', 'api_logout', 'session_info', 'static'}
-        if request.endpoint not in public and session.get('session_id') not in active_sessions:
+        if request.endpoint not in public and not is_hosted_demo() and session.get('session_id') not in active_sessions:
             if request.path.startswith('/api/'):
                 return jsonify(error='Connect a workspace first'), 401
             return redirect('/login')
@@ -75,9 +84,14 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
 
     @app.get('/api/session')
     def session_info():
-        return jsonify(csrf_token=csrf(), authenticated=session.get('session_id') in active_sessions)
+        scope = get_scope() if is_hosted_demo() or session.get('session_id') in active_sessions else None
+        return jsonify(csrf_token=csrf(), authenticated=scope is not None,
+                       mode=scope['mode'] if scope else None)
 
     def get_scope():
+        if is_hosted_demo():
+            return {'owner': 'hosted-demo', 'mode': 'demo', 'profile': None,
+                    'account_id': 'demo-account', 'region': 'ap-south-1'}
         return active_sessions[session['session_id']]
 
     def get_boto3_session():
@@ -92,7 +106,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
         m = scope["mode"]
         acc = scope["account_id"]
         reg = scope["region"]
-        data = store.latest(o, m, acc, reg)
+        data = selected_store(scope).latest(o, m, acc, reg)
         age = None
         if data:
             age = max(0, (datetime.now(timezone.utc) -
@@ -130,7 +144,14 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
         if deployment == 'demo' and req_mode != 'demo':
             return jsonify(error='AWS connections are unavailable in demo mode'), 403
         if deployment == 'hosted' and req_mode == 'demo':
-            return jsonify(error='Connect your AWS account to use this site'), 403
+            if set(req) != {'mode'}:
+                return jsonify(error='The offline demo accepts no AWS credentials'), 400
+            active_sessions.pop(session.get('session_id'), None)
+            session.pop('session_id', None)
+            session['demo'] = True
+            session['logged_out'] = False
+            return jsonify(status='ok', message='Opened the synthetic offline tour',
+                           account_id='demo-account', mode='demo')
         if 'profile' in req:
             return jsonify(error='Website connections require temporary credentials; use the CLI for profiles'), 400
         if req_mode != 'demo' and not token:
@@ -152,6 +173,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
                 "region": reg,
             }
             session["session_id"] = sid
+            session.pop('demo', None)
             session["logged_out"] = False
             # Ensure demo data is saved
             demo_data = collect_demo(reg)
@@ -195,6 +217,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
                 "region": reg,
             }
             session["session_id"] = sid
+            session.pop('demo', None)
             session["logged_out"] = False
 
             # Collect initial inventory
@@ -242,13 +265,14 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
         m = scope["mode"]
         acc = scope["account_id"]
         reg = scope["region"]
+        view_store = selected_store(scope)
         return render_template(
             "dashboard.html",
-            view=current(), csrf=csrf(), hosted=deployment == 'hosted',
-            detections=analyze(store, o, m, acc, reg),
-            actions=store.review_history(o, m, acc, reg),
-            containments=store.containment_history(o, m, acc, reg),
-            optimizations=store.optimization_history(o, m, acc, reg),
+            view=current(), csrf=csrf(), hosted=deployment == 'hosted' and m == 'aws',
+            detections=analyze(view_store, o, m, acc, reg),
+            actions=view_store.review_history(o, m, acc, reg),
+            containments=view_store.containment_history(o, m, acc, reg),
+            optimizations=view_store.optimization_history(o, m, acc, reg),
             billing_enabled=billing_enabled,
             billing=store.billing_latest(o, acc) if billing_enabled and m == 'aws' else None,
             billing_today=datetime.now(timezone.utc).date().isoformat(),
@@ -286,6 +310,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
     @app.get("/api/actions")
     def action_history():
         scope = get_scope()
+        view_store = selected_store(scope)
         o = scope["owner"]
         m = scope["mode"]
         acc = scope["account_id"]
@@ -294,9 +319,9 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
             "mode": m,
             "account_id": acc,
             "region": reg,
-            "reviews": store.review_history(o, m, acc, reg),
-            "containments": store.containment_history(o, m, acc, reg),
-            "optimizations": store.optimization_history(o, m, acc, reg),
+            "reviews": view_store.review_history(o, m, acc, reg),
+            "containments": view_store.containment_history(o, m, acc, reg),
+            "optimizations": view_store.optimization_history(o, m, acc, reg),
         })
 
     @app.get("/api/detection")
@@ -309,7 +334,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
         return jsonify({
             "mode": m,
             "optimization_enabled": False,
-            "results": analyze(store, o, m, acc, reg),
+            "results": analyze(selected_store(scope), o, m, acc, reg),
         })
 
     @app.get("/api/metrics")
@@ -329,7 +354,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
             "region": reg,
             "resource_id": resource,
             "metric": metric,
-            "points": store.history(o, m, acc, reg, resource, metric),
+            "points": selected_store(scope).history(o, m, acc, reg, resource, metric),
         })
 
     @app.get("/api/profiles")
@@ -414,7 +439,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
         with execution_lock:
             scope.pop('preview', None)
             try:
-                report = run_pipeline(store=store, mode=scope['mode'], account=scope['account_id'],
+                report = run_pipeline(store=selected_store(scope), mode=scope['mode'], account=scope['account_id'],
                     region=scope['region'], session=get_boto3_session() if scope['mode']=='aws' else None,
                     owner=scope['owner'], expected_account=scope['account_id'], with_metrics=scope['mode']=='aws',
                     max_resources=5 if deployment == 'hosted' else 10,
@@ -423,7 +448,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
                 preview_token = secrets.token_urlsafe(32)
                 scope['preview'] = {'token':preview_token, 'expires':time.monotonic()+300,
                                     'plans':{p['id']:p for p in report['plans_generated']}}
-                if deployment == 'hosted':
+                if deployment == 'hosted' and scope['mode'] == 'aws':
                     active_sessions[session['session_id']] = scope
                 return jsonify(status='success', report=report, summary=format_summary(report),
                                preview_token=preview_token, expires_in=300)

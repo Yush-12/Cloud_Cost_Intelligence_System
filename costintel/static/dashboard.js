@@ -384,7 +384,9 @@ if (execOpBtn) {
 
     if (opResults) {
       opResults.replaceChildren(Object.assign(document.createElement('pre'), {
-        textContent: document.documentElement.dataset.hosted === 'true'
+        textContent: document.documentElement.dataset.demo === 'true'
+          ? 'Regenerating the synthetic scenario. No AWS calls or cloud changes occur.'
+          : document.documentElement.dataset.hosted === 'true'
           ? 'Collecting AWS observations and evaluating metric patterns. This does not change resources.'
           : '[PREVIEW] Collecting workspace observations and evaluating metrics. Demo workspaces make no AWS calls.'
       }));
@@ -411,7 +413,9 @@ if (execOpBtn) {
         opResults.replaceChildren(Object.assign(document.createElement('pre'), {textContent:text}));
       }
 
-      showToast('Pipeline Cycle Complete', document.documentElement.dataset.hosted === 'true'
+      showToast('Pipeline Cycle Complete', document.documentElement.dataset.demo === 'true'
+        ? 'Synthetic scenario refreshed. No AWS calls were made.'
+        : document.documentElement.dataset.hosted === 'true'
         ? 'Collection complete. Review the metric evidence; no AWS resources were changed.'
         : 'Collection complete. Review the generated plans; no AWS changes were applied.', 'success', 4500);
       if (reloadViewBtn) reloadViewBtn.hidden = false;
@@ -466,10 +470,11 @@ document.querySelectorAll('.restore[data-id]').forEach(btn => {
    ========================================================================== */
 
 const logoutBtns = document.querySelectorAll('#logout, #logout-top');
-async function sessionIsActive() {
+async function sessionIsActive(expectedMode = null) {
   const response = await fetch('/api/session', {credentials:'same-origin', cache:'no-store'});
   if (!response.ok) throw new Error('Could not verify the workspace session');
-  return Boolean((await response.json()).authenticated);
+  const state = await response.json();
+  return Boolean(state.authenticated && (!expectedMode || state.mode === expectedMode));
 }
 
 // A browser can restore a previously rendered dashboard from its back-forward cache.
@@ -478,7 +483,7 @@ window.addEventListener('pagehide', () => document.documentElement.classList.add
 window.addEventListener('pageshow', async event => {
   if (!event.persisted) return;
   try {
-    if (await sessionIsActive()) {
+    if (await sessionIsActive(document.documentElement.dataset.demo === 'true' ? 'demo' : 'aws')) {
       document.documentElement.classList.remove('session-checking');
       return;
     }
@@ -536,6 +541,10 @@ function renderPlans(data) {
   const root = document.querySelector('#reviewed-plans');
   if (!root) return;
   root.replaceChildren();
+  if (document.documentElement.dataset.demo === 'true') {
+    root.append(Object.assign(document.createElement('p'), {textContent:'This tour shows simulated responses in the audit below. No AWS action plans are executable here.'}));
+    return;
+  }
   if (document.documentElement.dataset.hosted === 'true') {
     root.append(Object.assign(document.createElement('p'), {textContent:'Hosted monitoring is read-only. Review metric evidence above; cloud actions are unavailable here.'}));
     return;

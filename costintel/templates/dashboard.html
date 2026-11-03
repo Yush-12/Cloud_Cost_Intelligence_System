@@ -15,7 +15,7 @@
 </svg>
 {%- endmacro %}
 <!doctype html>
-<html lang="en" data-hosted="{{ 'true' if hosted else 'false' }}">
+<html lang="en" data-hosted="{{ 'true' if hosted else 'false' }}" data-demo="{{ 'true' if view.mode == 'demo' else 'false' }}">
 <head>
   <meta name="csrf-token" content="{{ csrf }}">
   <meta charset="utf-8">
@@ -60,7 +60,7 @@
     <div class="sidebar-note">
       {{ icon('shield') }}
       <strong>Evidence before action.</strong>
-      <p>{{ 'This hosted workspace collects AWS evidence without changing resources.' if hosted else 'Automated cloud changes require an explicit plan, model score, and resource opt-in.' }}</p>
+      <p>{{ 'This tour uses synthetic data and simulated actions. It never contacts AWS.' if view.mode == 'demo' else 'This hosted workspace collects AWS evidence without changing resources.' if hosted else 'Automated cloud changes require an explicit plan, model score, and resource opt-in.' }}</p>
       <a href="#setup">Workspace guide {{ icon('arrow') }}</a>
     </div>
 
@@ -68,7 +68,7 @@
       <span class="avatar">CI</span>
       <div>
         <strong>{{ 'Hosted AWS Workspace' if hosted else 'Local Workspace' if view.mode == 'aws' else 'Demo Sandbox' }}</strong>
-        <small>{{ 'Read-only monitoring' if hosted else 'Ephemeral FinOps Console' }}</small>
+        <small>{{ 'Synthetic tour · no AWS calls' if view.mode == 'demo' else 'Read-only monitoring' if hosted else 'Ephemeral FinOps Console' }}</small>
       </div>
       <button class="icon-button" id="logout" title="Disconnect workspace" aria-label="Disconnect workspace">↪</button>
     </div>
@@ -101,9 +101,9 @@
       <!-- Hero Header -->
       <section id="overview" class="hero">
         <div>
-          <div class="eyebrow"><span class="short-line"></span> YOUR CLOUD, IN CONTEXT</div>
+          <div class="eyebrow"><span class="short-line"></span> {{ 'A SYNTHETIC CLOUD SCENARIO' if view.mode == 'demo' else 'YOUR CLOUD, IN CONTEXT' }}</div>
           <h1>Clarity at every layer<span>.</span></h1>
-          <p>Understand what changed. Investigate the telemetry evidence. Stay in control.</p>
+          <p>{{ 'Explore example resources, an anomaly, and a simulated response. No AWS account is connected.' if view.mode == 'demo' else 'Understand what changed. Investigate the telemetry evidence. Stay in control.' }}</p>
           {% if hosted %}<p>Hosted AWS monitoring is read-only while durable action recovery is being built. Use the local workspace for guarded cloud actions.</p>{% endif %}
         </div>
         <div class="hero-actions">
@@ -130,7 +130,7 @@
       <section class="stat-grid" aria-label="Workspace summary">
         <article class="stat-card">
           <div class="stat-top">
-            <span>Discovered resources</span>
+            <span>{{ 'Example resources' if view.mode == 'demo' else 'Discovered resources' }}</span>
             {{ icon('box') }}
           </div>
           <strong>{{ snap.resources|length if snap else '—' }}</strong>
@@ -154,25 +154,25 @@
 
         <article class="stat-card">
           <div class="stat-top">
-            <span>Recorded actions</span>
+            <span>{{ 'Simulated actions' if view.mode == 'demo' else 'Recorded actions' }}</span>
             {{ icon('shield') }}
           </div>
           <strong>{{ total_actions }}</strong>
           <div class="stat-foot">
             <span class="mini-dot mint"></span>
-            Verified status in audit history
+            {{ 'Illustrative audit trail' if view.mode == 'demo' else 'Verified status in audit history' }}
           </div>
         </article>
 
         <article class="stat-card">
           <div class="stat-top">
-            <span>Billing reconciliation</span>
+            <span>{{ 'Billed savings' if view.mode == 'demo' else 'Billing reconciliation' }}</span>
             {{ icon('zap') }}
           </div>
           <strong class="text-value">Not measured</strong>
           <div class="stat-foot">
             <span class="mini-dot mint"></span>
-            No reconciled dollar savings yet
+            {{ 'No real billing in the demo' if view.mode == 'demo' else 'No reconciled dollar savings yet' }}
           </div>
         </article>
       </section>
@@ -407,8 +407,12 @@
 
       <!-- Section 03: Optimization Impact (Before vs After) -->
       <section id="impact" class="section">
-        <div class="section-head"><div><span class="section-index">03 / IMPACT</span><h2>Evidence, before estimates.</h2></div><span class="pill">{{ 'Account billing available' if billing and billing.status == 'ready' else 'Billing not connected' }}</span></div>
+        <div class="section-head"><div><span class="section-index">03 / IMPACT</span><h2>Evidence, before estimates.</h2></div><span class="pill">{{ 'Simulated scenario' if view.mode == 'demo' else 'Account billing available' if billing and billing.status == 'ready' else 'Billing not connected' }}</span></div>
+        {% if view.mode == 'demo' %}
+        <div class="panel audit-panel"><div class="audit-entry"><h3>Example: detect, contain, restore.</h3><p>The synthetic Lambda's Duration rises from an approximately 8 ms baseline to 501.8 ms. The audit below illustrates a concurrency containment and restoration, plus a review tag. These actions are examples only; no AWS API was called.</p><small>No bill or monetary savings is measured in the demo. In a real workspace, an operator must verify every action and its effect.</small></div></div>
+        {% else %}
         <div class="panel audit-panel"><div class="audit-entry"><h3>Usage observations are not billed savings.</h3><p>Explore collected metrics and recorded action states below. Dollar savings require a defensible before/after comparison; that calculation is not implemented yet.</p><small>Review tags alone do not reduce resource usage. Historical action status is not a live state check.</small></div></div>
+        {% endif %}
         {% if billing_enabled and view.mode == 'aws' %}
         <div class="panel audit-panel"><div class="audit-entry">
           <h3>AWS Cost Explorer · completed days</h3>
@@ -434,7 +438,7 @@
             <span class="section-index">04 / VERIFY</span>
             <h2>A record of every decision.</h2>
           </div>
-          <span class="pill"><span class="mini-dot mint"></span>Audit Before Execution</span>
+          <span class="pill"><span class="mini-dot mint"></span>{{ 'Simulated audit' if view.mode == 'demo' else 'Audit Before Execution' }}</span>
         </div>
 
         <div class="audit-grid">
@@ -448,7 +452,7 @@
               <div class="audit-entry">
                 <div class="audit-header">
                   <strong>Lambda Concurrency Containment</strong>
-                  <span class="status-badge {{ 'good' if a.status == 'restored' else 'warn' }}">{{ a.status|replace('_', ' ') }}</span>
+                  <span class="status-badge {{ 'good' if a.status == 'restored' else 'warn' }}">{{ 'simulated ' if a.simulated|default(false) else '' }}{{ a.status|replace('_', ' ') }}</span>
                 </div>
                 <p>Original: {{ a.previous if a.previous is not none else 'Unreserved' }} → containment: 0{% if a.status == 'restored' %} → original restored{% endif %}</p>
                 <small><time datetime="{{ a.created_at }}">{{ a.created_at }}</time></small>
@@ -460,7 +464,7 @@
                   <summary>View evidence identifiers</summary>
                   <code>{{ a.id }}<br>{{ a.resource }}</code>
                 </details>
-                {% if a.status != 'restored' %}
+                {% if a.status != 'restored' and view.mode == 'aws' %}
                   <button class="button secondary restore" style="margin-top: 10px;" data-id="{{ a.id }}" data-kind="containment">Restore Baseline</button>
                 {% endif %}
               </div>
@@ -487,7 +491,7 @@
                   <summary>View evidence identifiers</summary>
                   <code>{{ a.id }}</code>
                 </details>
-                {% if a.action == 'stop_idle_instance' and a.status != 'restored' %}
+                {% if a.action == 'stop_idle_instance' and a.status != 'restored' and view.mode == 'aws' %}
                   <button class="button secondary restore" style="margin-top: 10px;" data-id="{{ a.id }}" data-kind="ec2">Restart Instance</button>
                 {% endif %}
               </div>
@@ -496,7 +500,7 @@
             {% endfor %}
           </article>
         </div>
-        <p class="section-note">Audit status reflects the last verified operation, not a live resource check. Review tags flag resources for operator attention without stopping workloads.</p>
+        <p class="section-note">{{ 'All audit entries in this demo are illustrative. No resource was changed.' if view.mode == 'demo' else 'Audit status reflects the last verified operation, not a live resource check. Review tags flag resources for operator attention without stopping workloads.' }}</p>
       </section>
 
       <!-- Section 05: Setup & Verification Guide -->
@@ -504,28 +508,28 @@
         <div>
           <span class="eyebrow">BUILT TO BE INSPECTED</span>
           <h2>Your infrastructure.<br>Your evidence.</h2>
-              <p>{{ 'Connect with temporary AWS credentials. Collect observations and inspect the evidence from your account.' if hosted else 'Run locally with temporary AWS credentials. Inspect plans before execution and verify state changes in your live AWS console.' }}</p>
+              <p>{{ 'This tour illustrates the workflow with synthetic data. Connect your own AWS account from the login page to inspect live resources.' if view.mode == 'demo' else 'Connect with temporary AWS credentials. Collect observations and inspect the evidence from your account.' if hosted else 'Run locally with temporary AWS credentials. Inspect plans before execution and verify state changes in your live AWS console.' }}</p>
         </div>
         <div class="setup-steps">
           <div>
             <span>01</span>
             <div>
-              <strong>Connect a scoped identity</strong>
-              <p>Telemetry reader policy ingests multi-service inventory without mutation access.</p>
+              <strong>{{ 'Start with sample resources' if view.mode == 'demo' else 'Connect a scoped identity' }}</strong>
+              <p>{{ 'EC2, Lambda, S3, and DynamoDB examples are generated locally.' if view.mode == 'demo' else 'Telemetry reader policy ingests multi-service inventory without mutation access.' }}</p>
             </div>
           </div>
           <div>
             <span>02</span>
             <div>
-              <strong>{{ 'Observe and detect' if hosted else 'Observe, detect, preview' }}</strong>
-              <p>Collected five-minute compute observations and daily S3 Standard telemetry.</p>
+              <strong>{{ 'Inspect the synthetic anomaly' if view.mode == 'demo' else 'Observe and detect' if hosted else 'Observe, detect, preview' }}</strong>
+              <p>{{ 'Thirty-six baseline points and a held-out spike demonstrate Isolation Forest.' if view.mode == 'demo' else 'Collected five-minute compute observations and daily S3 Standard telemetry.' }}</p>
             </div>
           </div>
           <div>
             <span>03</span>
             <div>
-              <strong>{{ 'Read-only hosted monitoring' if hosted else 'Guarded execution & recovery' }}</strong>
-              <p>{{ 'Resource changes are disabled on this website while durable action recovery is developed.' if hosted else 'Tag-based opt-in, durable intent in SQLite, and verified restoration.' }}</p>
+              <strong>{{ 'Review the simulated response' if view.mode == 'demo' else 'Read-only hosted monitoring' if hosted else 'Guarded execution & recovery' }}</strong>
+              <p>{{ 'The audit illustrates containment and restoration; no real cloud action occurs.' if view.mode == 'demo' else 'Resource changes are disabled on this website while durable action recovery is developed.' if hosted else 'Tag-based opt-in, durable intent in SQLite, and verified restoration.' }}</p>
             </div>
           </div>
         </div>
@@ -545,8 +549,8 @@
       <span class="eyebrow">WORKSPACE OPERATION</span>
       <button id="close-dialog" class="icon-button" aria-label="Close dialog">×</button>
     </div>
-    <h2 id="operation-title">{{ 'Collect & Analyze' if hosted else 'Collect & Preview Pipeline' }}</h2>
-    <p id="operation-message" aria-live="polite">{{ 'Collect observations for this workspace and evaluate metric outliers. Collection does not change AWS resources.' if hosted else 'Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. Collection does not change AWS resources. Eligible plans can be reviewed and explicitly executed below.' }}</p>
+    <h2 id="operation-title">{{ 'Refresh Synthetic Scenario' if view.mode == 'demo' else 'Collect & Analyze' if hosted else 'Collect & Preview Pipeline' }}</h2>
+    <p id="operation-message" aria-live="polite">{{ 'Regenerate the illustrative resources and metric history. This makes no AWS calls and changes no cloud resources.' if view.mode == 'demo' else 'Collect observations for this workspace and evaluate metric outliers. Collection does not change AWS resources.' if hosted else 'Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. Collection does not change AWS resources. Eligible plans can be reviewed and explicitly executed below.' }}</p>
 
     <div id="operation-results"></div>
     <div id="reviewed-plans" aria-live="polite"></div>

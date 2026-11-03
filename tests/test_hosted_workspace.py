@@ -27,16 +27,75 @@ def hosted_client(tmp_path):
     return app.test_client(),store
 
 
-def test_hosted_login_page_requires_aws_and_rejects_demo(tmp_path):
+def test_hosted_login_page_offers_demo_and_aws(tmp_path):
     client,_=hosted_client(tmp_path)
     page=client.get('/login')
     assert page.status_code==200
-    assert b'Explore the offline demo' not in page.data
-    assert b'HOSTED AWS WORKSPACE' in page.data
+    assert b'Explore the offline demo' in page.data
+    assert b'HOSTED WORKSPACE' in page.data
     assert b'LOCAL WORKSPACE' not in page.data
     assert b'encrypted in the hosted database' in page.data
     assert b'Temporary AWS credentials' in page.data or b'temporary AWS credentials' in page.data
-    assert post(client,'/api/auth/login',{'mode':'demo'}).status_code==403
+    assert post(client,'/api/auth/login',{'mode':'demo','access_key_id':'ASIATEST'}).status_code==400
+
+
+def test_hosted_demo_is_stateless_synthetic_and_never_calls_aws(tmp_path, monkeypatch):
+    client, store = hosted_client(tmp_path)
+    with patch('costintel.web.boto3.Session', side_effect=AssertionError('AWS session created')), \
+         patch('costintel.web.collect_aws', side_effect=AssertionError('AWS inventory called')):
+        assert post(client,'/api/auth/login',{'mode':'demo'}).status_code==200
+        assert client.get('/api/session').json['mode'] == 'demo'
+        dashboard = client.get('/')
+        assert dashboard.status_code == 200
+        assert b'SIMULATED DEMO' in dashboard.data
+        assert b'Example: detect, contain, restore.' in dashboard.data
+        assert b'demo-containment-001' in dashboard.data
+        assert b'No AWS account is connected' in dashboard.data
+        inventory = client.get('/api/inventory').json
+        assert inventory['mode'] == 'demo'
+        assert inventory['snapshot']['telemetry']['synthetic'] is True
+        assert inventory['snapshot']['telemetry']['api_calls'] == 0
+        assert len(inventory['snapshot']['resources']) == 4
+        detection = client.get('/api/detection').json['results']
+        assert any(row['status'] == 'outlier' for row in detection)
+        assert client.get('/api/metrics?resource_id=demo-lambda-workload&metric=Duration').json['points']
+        cycle = post(client,'/api/pipeline/run',{'apply':False,'window_hours':6}).json
+        assert cycle['report']['telemetry']['api_calls'] == 0
+        assert cycle['report']['plans_generated'] == []
+        assert store.latest('hosted','demo','demo-account','ap-south-1') is None
+        assert post(client,'/api/plans/execute',{'preview_token':'x','plan_id':'x'}).status_code == 403
+        assert post(client,'/api/workload/restore',{'action_id':'x'}).status_code == 403
+        assert post(client,'/api/auth/logout').status_code == 200
+        assert client.get('/api/session').json['authenticated'] is False
+
+
+def test_hosted_demo_cookie_survives_a_new_instance(tmp_path):
+    first, _ = hosted_client(tmp_path)
+    assert post(first,'/api/auth/login',{'mode':'demo'}).status_code == 200
+    cookie = first.get_cookie('session')
+    second, _ = hosted_client(tmp_path)
+    second.set_cookie('session', cookie.value)
+    assert second.get('/').status_code == 200
+    assert second.get('/api/session').json['authenticated'] is True
+
+
+def test_switching_from_aws_to_demo_deletes_aws_session(tmp_path):
+    client, _ = hosted_client(tmp_path)
+    sdk = Mock()
+    sdk.client.return_value.get_caller_identity.return_value = {
+        'Account':'123456789012', 'Arn':'arn:aws:iam::123456789012:user/reader'}
+    snapshot = {'mode':'aws', 'account_id':'123456789012', 'region':'ap-south-1',
+                'collected_at':'2026-11-03T00:00:00+00:00', 'resources':[]}
+    with patch('costintel.web.boto3.Session', return_value=sdk), \
+         patch('costintel.web.collect_aws', return_value=snapshot):
+        assert post(client,'/api/auth/login',{'mode':'aws','region':'ap-south-1',
+            'access_key_id':'ASIATEST','secret_access_key':'example-secret',
+            'session_token':'example-token'}).status_code == 200
+    assert client.get('/api/session').json['mode'] == 'aws'
+    assert post(client,'/api/auth/login',{'mode':'demo'}).status_code == 200
+    assert client.get('/api/session').json['mode'] == 'demo'
+    assert client.get('/api/inventory').json['mode'] == 'demo'
+    assert client.application.extensions['workspace_sessions'] == {}
 
 
 def test_hosted_connection_is_scoped_and_never_generates_action_plans(tmp_path):

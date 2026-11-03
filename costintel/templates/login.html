@@ -19,7 +19,7 @@
           fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M3 12h5l3-7 3 14 3-7h4" />
         </svg></span>costintel<span class="brand-period">.</span></a>
-    <div class="connect-header-tools"><span class="environment-label"><i></i>{{ 'HOSTED AWS WORKSPACE' if hosted else 'LOCAL WORKSPACE' if local else 'PUBLIC DEMO' }}</span><button id="theme-toggle" type="button" aria-label="Change theme"
+    <div class="connect-header-tools"><span class="environment-label"><i></i>{{ 'HOSTED WORKSPACE' if hosted else 'LOCAL WORKSPACE' if local else 'PUBLIC DEMO' }}</span><button id="theme-toggle" type="button" aria-label="Change theme"
         class="connect-theme">☾</button></div>
   </header>
   <main class="connect-layout">
@@ -60,7 +60,7 @@
         </li>
         <li><span>03</span>
           <div><strong>Keep control</strong>
-            <p>{{ 'Observe safely with read-only monitoring.' if hosted else 'Preview eligible actions before explicit execution.' }}</p>
+            <p>{{ 'Explore a simulated workflow, or observe your AWS account safely.' if hosted else 'Preview eligible actions before explicit execution.' }}</p>
           </div>
         </li>
       </ol>
@@ -68,17 +68,12 @@
     <section class="connection-card" id="connect" aria-labelledby="connect-title">
       <p class="connect-eyebrow">{{ 'START WITH A WORKSPACE' if local else 'TAKE A LOOK AROUND' }}</p>
       <h2 id="connect-title">{{ 'Make yourself at home.' if local else 'Explore CostIntel.' }}</h2>
-      <p class="card-intro">{{ 'Connect your AWS account with temporary credentials.' if hosted else 'Try the demo, or connect your AWS account locally.' if local else 'Explore the dashboard
+      <p class="card-intro">{{ 'Explore a synthetic tour, or connect your AWS account with temporary credentials.' if hosted else 'Try the demo, or connect your AWS account locally.' if local else 'Explore the dashboard
         with illustrative cloud usage data.' }}</p>
-      {% if not hosted %}
       <button class="demo-choice" id="demo-connect" type="button"><span class="demo-icon"
-          aria-hidden="true">↗</span><span><strong>Explore the offline demo</strong><small>No AWS account or credentials
-            needed</small></span><span class="choice-arrow" aria-hidden="true">→</span></button>
-      {% endif %}
+          aria-hidden="true">↗</span><span><strong>Explore the offline demo</strong><small>Synthetic data · no AWS account, credentials, or cloud changes</small></span><span class="choice-arrow" aria-hidden="true">→</span></button>
       {% if local %}
-      {% if not hosted %}
       <div class="connect-divider"><span>OR CONNECT YOUR AWS ACCOUNT</span></div>
-      {% endif %}
       <form id="connection-form">
         <div id="credential-fields">
           <p class="field-help credential-help">Use temporary AWS credentials. All three fields are required.</p>
@@ -139,8 +134,8 @@
       </details>
       {% endif %}
       <details class="connection-details">
-        <summary>{{ 'How does my connection work?' if local else 'What is in this demo?' }}</summary>
-        <div class="details-body">{% if local %}<p>We verify your AWS identity before opening the workspace. Root credentials are not
+        <summary>{{ 'How do these options work?' if hosted else 'How does my connection work?' if local else 'What is in this demo?' }}</summary>
+        <div class="details-body">{% if local %}{% if hosted %}<p>The offline demo regenerates synthetic metrics and illustrative action records. It requires no credentials and makes no AWS calls.</p>{% endif %}<p>We verify your AWS identity before opening the workspace. Root credentials are not
             accepted.</p>
           {% if hosted %}<p>Your temporary credentials are encrypted in the hosted database. Access expires after one hour or when you disconnect; expired records are deleted on later app activity. The browser cookie contains no AWS keys.</p>
           <p>Connecting collects inventory. Monitoring is read-only on this website; collection does not change AWS resources.</p>
