@@ -12,15 +12,14 @@
   <script src="{{ url_for('static',filename='login.js') }}" defer></script>
 </head>
 
-<body class="connect-page">
+<body class="connect-page" data-hosted="{{ 'true' if hosted else 'false' }}">
   <a class="connect-skip" href="#connect">Skip to connection options</a>
   <header class="connect-header">
     <a class="connect-brand" href="/login" aria-label="CostIntel home"><span aria-hidden="true"><svg viewBox="0 0 24 24"
           fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M3 12h5l3-7 3 14 3-7h4" />
         </svg></span>costintel<span class="brand-period">.</span></a>
-    <div class="connect-header-tools"><span class="environment-label"><i></i>{{ 'LOCAL WORKSPACE' if local else 'PUBLIC
-        DEMO' }}</span><button id="theme-toggle" type="button" aria-label="Change theme"
+    <div class="connect-header-tools"><span class="environment-label"><i></i>{{ 'HOSTED AWS WORKSPACE' if hosted else 'LOCAL WORKSPACE' if local else 'PUBLIC DEMO' }}</span><button id="theme-toggle" type="button" aria-label="Change theme"
         class="connect-theme">☾</button></div>
   </header>
   <main class="connect-layout">
@@ -61,7 +60,7 @@
         </li>
         <li><span>03</span>
           <div><strong>Keep control</strong>
-            <p>Preview eligible actions before explicit execution.</p>
+            <p>{{ 'Observe safely with read-only monitoring.' if hosted else 'Preview eligible actions before explicit execution.' }}</p>
           </div>
         </li>
       </ol>
@@ -114,7 +113,7 @@
           <option value="eu-west-1">Ireland · eu-west-1</option>
           <option value="ap-southeast-1">Singapore · ap-southeast-1</option>
         </select>
-        <p class="field-help region-help">Collection uses this region. Lab actions currently support Mumbai only.</p>
+        <p class="field-help region-help">{{ 'Collection uses this region. Hosted monitoring does not change AWS resources.' if hosted else 'Collection uses this region. Lab actions currently support Mumbai only.' }}</p>
         <button id="connect-submit" type="submit" class="connect-submit"><span>Connect AWS workspace</span><span
             aria-hidden="true">→</span></button>
       </form>
@@ -143,10 +142,10 @@
         <summary>{{ 'How does my connection work?' if local else 'What is in this demo?' }}</summary>
         <div class="details-body">{% if local %}<p>We verify your AWS identity before opening the workspace. Root credentials are not
             accepted.</p>
-          <p>Credentials entered here stay in application memory for up to one hour or until you disconnect. Disconnect
-            to clear this local session.</p>
-          <p>Connecting collects inventory. Cloud resource changes require separate, explicit execution; collection
-            previews plans before you explicitly execute an eligible action.</p>{% else %}<p>Demo observations are
+          {% if hosted %}<p>Your temporary credentials are encrypted in the hosted database for up to one hour or until you disconnect. The browser cookie contains no AWS keys.</p>
+          <p>Connecting collects inventory. Monitoring is read-only on this website; collection does not change AWS resources.</p>
+          {% else %}<p>Credentials entered here stay in application memory for up to one hour or until you disconnect. Disconnect to clear this local session.</p>
+          <p>Connecting collects inventory. Cloud resource changes require separate, explicit execution; collection previews plans before you explicitly execute an eligible action.</p>{% endif %}{% else %}<p>Demo observations are
             synthetic, not live AWS readings. Exploring the demo makes no AWS calls and reports no measured dollar
             savings.</p>{% endif %}
         </div>

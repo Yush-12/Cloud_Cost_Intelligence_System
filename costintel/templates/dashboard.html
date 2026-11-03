@@ -60,15 +60,15 @@
     <div class="sidebar-note">
       {{ icon('shield') }}
       <strong>Evidence before action.</strong>
-      <p>Automated cloud changes require an explicit plan, model score, and resource opt-in.</p>
+      <p>{{ 'This hosted workspace collects AWS evidence without changing resources.' if hosted else 'Automated cloud changes require an explicit plan, model score, and resource opt-in.' }}</p>
       <a href="#setup">Workspace guide {{ icon('arrow') }}</a>
     </div>
 
     <div class="sidebar-footer">
       <span class="avatar">CI</span>
       <div>
-        <strong>{{ 'Local Workspace' if view.mode == 'aws' else 'Demo Sandbox' }}</strong>
-        <small>Ephemeral FinOps Console</small>
+        <strong>{{ 'Hosted AWS Workspace' if hosted else 'Local Workspace' if view.mode == 'aws' else 'Demo Sandbox' }}</strong>
+        <small>{{ 'Read-only monitoring' if hosted else 'Ephemeral FinOps Console' }}</small>
       </div>
       <button class="icon-button" id="logout" title="Disconnect workspace" aria-label="Disconnect workspace">↪</button>
     </div>
@@ -108,7 +108,7 @@
         </div>
         <div class="hero-actions">
           <span class="region-label">{{ view.region }} <span>/ {{ 'AWS Multi-Service' if view.mode == 'aws' else 'Simulated Environment' }}</span></span>
-          <button id="collect" class="button primary">{{ icon('refresh') }}{{ 'Refresh Demo Sandbox' if view.mode == 'demo' else 'Collect & Preview' }}</button>
+          <button id="collect" class="button primary">{{ icon('refresh') }}{{ 'Refresh Demo Sandbox' if view.mode == 'demo' else 'Collect & Analyze' if hosted else 'Collect & Preview' }}</button>
         </div>
       </section>
 
@@ -123,7 +123,7 @@
             <span>Collect metrics to begin your investigation.</span>
           {% endif %}
         </p>
-        <span class="freshness-note">{{ 'Synthetic demo observations · no AWS calls' if view.mode == 'demo' else 'CloudWatch observations · guarded mutation window' }}</span>
+        <span class="freshness-note">{{ 'Synthetic demo observations · no AWS calls' if view.mode == 'demo' else 'CloudWatch observations · read-only monitoring' if hosted else 'CloudWatch observations · guarded mutation window' }}</span>
       </div>
 
       <!-- Stat Grid (4 KPI Cards) -->
@@ -289,7 +289,7 @@
             {{ icon('pulse') }}
             <h3>A clearer picture starts with data.</h3>
             <p>Collect CloudWatch metrics to build a history. Missing observations are never treated as zero.</p>
-            <button class="button secondary" data-collect>Collect & preview {{ icon('arrow') }}</button>
+            <button class="button secondary" data-collect>{{ 'Collect & analyze' if hosted else 'Collect & preview' }} {{ icon('arrow') }}</button>
           </div>
         {% endif %}
 
@@ -481,7 +481,7 @@
         <div>
           <span class="eyebrow">BUILT TO BE INSPECTED</span>
           <h2>Your infrastructure.<br>Your evidence.</h2>
-              <p>Run locally with temporary AWS credentials. Inspect plans before execution and verify state changes in your live AWS console.</p>
+              <p>{{ 'Connect with temporary AWS credentials. Collect observations and inspect the evidence from your account.' if hosted else 'Run locally with temporary AWS credentials. Inspect plans before execution and verify state changes in your live AWS console.' }}</p>
         </div>
         <div class="setup-steps">
           <div>
@@ -494,15 +494,15 @@
           <div>
             <span>02</span>
             <div>
-              <strong>Observe, detect, preview</strong>
+              <strong>{{ 'Observe and detect' if hosted else 'Observe, detect, preview' }}</strong>
               <p>Collected five-minute compute observations and daily S3 Standard telemetry.</p>
             </div>
           </div>
           <div>
             <span>03</span>
             <div>
-              <strong>Guarded execution & recovery</strong>
-              <p>Tag-based opt-in, durable intent in SQLite, and verified restoration.</p>
+              <strong>{{ 'Read-only hosted monitoring' if hosted else 'Guarded execution & recovery' }}</strong>
+              <p>{{ 'Resource changes are disabled on this website while durable action recovery is developed.' if hosted else 'Tag-based opt-in, durable intent in SQLite, and verified restoration.' }}</p>
             </div>
           </div>
         </div>
@@ -511,7 +511,7 @@
       <!-- Footer -->
       <footer>
         <span>costintel<span class="brand-dot">.</span><small>Cloud usage intelligence</small></span>
-        <p>{{ 'Local Workspace' if view.mode == 'aws' else 'Simulated Demo' }} · Ephemeral In-Memory Auth · No Keys Saved</p>
+        <p>{{ 'Hosted AWS Workspace · Encrypted temporary session' if hosted else 'Local Workspace · Ephemeral In-Memory Auth · No Keys Saved' if view.mode == 'aws' else 'Simulated Demo · No AWS credentials' }}</p>
       </footer>
     </main>
   </div>
@@ -522,8 +522,8 @@
       <span class="eyebrow">WORKSPACE OPERATION</span>
       <button id="close-dialog" class="icon-button" aria-label="Close dialog">×</button>
     </div>
-    <h2 id="operation-title">Collect & Preview Pipeline</h2>
-    <p id="operation-message" aria-live="polite">Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. Collection does not change AWS resources. Eligible plans can be reviewed and explicitly executed below.</p>
+    <h2 id="operation-title">{{ 'Collect & Analyze' if hosted else 'Collect & Preview Pipeline' }}</h2>
+    <p id="operation-message" aria-live="polite">{{ 'Collect observations for this workspace and evaluate metric outliers. Collection does not change AWS resources.' if hosted else 'Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. Collection does not change AWS resources. Eligible plans can be reviewed and explicitly executed below.' }}</p>
 
     <div id="operation-results"></div>
     <div id="reviewed-plans" aria-live="polite"></div>

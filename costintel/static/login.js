@@ -62,7 +62,9 @@
     } catch (failure) {
       status.hidden = true;
       error.hidden = false;
-      error.textContent = failure instanceof TypeError ? 'Could not reach the local server. Check that CostIntel is running, then try again.' : failure.message;
+      error.textContent = failure instanceof TypeError
+        ? (document.body.dataset.hosted === 'true' ? 'Could not reach the hosted service. Check your connection, then try again.' : 'Could not reach the local server. Check that CostIntel is running, then try again.')
+        : failure.message;
       error.focus();
     } finally {
       if (!connected) {

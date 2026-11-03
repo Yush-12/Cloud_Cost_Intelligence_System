@@ -32,6 +32,9 @@ def test_hosted_login_page_requires_aws_and_rejects_demo(tmp_path):
     page=client.get('/login')
     assert page.status_code==200
     assert b'Explore the offline demo' not in page.data
+    assert b'HOSTED AWS WORKSPACE' in page.data
+    assert b'LOCAL WORKSPACE' not in page.data
+    assert b'encrypted in the hosted database' in page.data
     assert b'Temporary AWS credentials' in page.data or b'temporary AWS credentials' in page.data
     assert post(client,'/api/auth/login',{'mode':'demo'}).status_code==403
 
@@ -48,7 +51,10 @@ def test_hosted_connection_is_scoped_and_never_generates_action_plans(tmp_path):
         response=post(client,'/api/auth/login',{'mode':'aws','region':'ap-south-1',
             'access_key_id':'ASIATEST','secret_access_key':'example-secret','session_token':'example-token'})
     assert response.status_code==200
-    assert client.get('/').status_code==200
+    dashboard=client.get('/')
+    assert dashboard.status_code==200
+    assert b'Hosted AWS Workspace' in dashboard.data
+    assert b'Collect &amp; Analyze' in dashboard.data
     assert store.latest('hosted','aws','123456789012','ap-south-1') is None
     report={'mode':'aws','account':'123456789012','region':'ap-south-1','snapshot_id':'x','timestamp':'now',
             'inventory':{'resources_count':0,'services':[]},'telemetry':{'series_collected':0,'api_calls':0},

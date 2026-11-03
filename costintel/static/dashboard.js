@@ -474,6 +474,10 @@ function renderPlans(data) {
   const root = document.querySelector('#reviewed-plans');
   if (!root) return;
   root.replaceChildren();
+  if (document.documentElement.dataset.hosted === 'true') {
+    root.append(Object.assign(document.createElement('p'), {textContent:'Hosted monitoring is read-only. Review metric evidence above; cloud actions are unavailable here.'}));
+    return;
+  }
   const plans = data.report?.plans_generated || [];
   if (!plans.length) {
     root.append(Object.assign(document.createElement('p'), {textContent:'No eligible plans. Stale or missing observations cannot authorize a change.'}));
