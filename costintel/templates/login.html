@@ -69,13 +69,17 @@
     <section class="connection-card" id="connect" aria-labelledby="connect-title">
       <p class="connect-eyebrow">{{ 'START WITH A WORKSPACE' if local else 'TAKE A LOOK AROUND' }}</p>
       <h2 id="connect-title">{{ 'Make yourself at home.' if local else 'Explore CostIntel.' }}</h2>
-      <p class="card-intro">{{ 'Try the demo, or connect your AWS account locally.' if local else 'Explore the dashboard
+      <p class="card-intro">{{ 'Connect your AWS account with temporary credentials.' if hosted else 'Try the demo, or connect your AWS account locally.' if local else 'Explore the dashboard
         with illustrative cloud usage data.' }}</p>
+      {% if not hosted %}
       <button class="demo-choice" id="demo-connect" type="button"><span class="demo-icon"
           aria-hidden="true">↗</span><span><strong>Explore the offline demo</strong><small>No AWS account or credentials
             needed</small></span><span class="choice-arrow" aria-hidden="true">→</span></button>
+      {% endif %}
       {% if local %}
+      {% if not hosted %}
       <div class="connect-divider"><span>OR CONNECT YOUR AWS ACCOUNT</span></div>
+      {% endif %}
       <form id="connection-form">
         <div id="credential-fields">
           <p class="field-help credential-help">Use temporary AWS credentials. All three fields are required.</p>

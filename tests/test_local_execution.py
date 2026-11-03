@@ -2,7 +2,7 @@ from datetime import datetime,timedelta,timezone
 from unittest.mock import Mock,patch
 import pytest
 from costintel.store import SnapshotStore
-from costintel.policies import containment_plan,apply_detected_containment
+from costintel.actions import containment_plan, apply_detected_containment
 from costintel.web import create_app
 from tests.web_helpers import connect,post
 

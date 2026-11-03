@@ -2,7 +2,8 @@
   "functions": {
     "api/index.py": {
       "includeFiles": "costintel/**",
-      "maxDuration": 60
+      "maxDuration": 60,
+      "regions": ["bom1"]
     }
   },
   "rewrites": [

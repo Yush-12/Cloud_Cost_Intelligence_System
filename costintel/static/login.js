@@ -72,7 +72,7 @@
       }
     }
   }
-  demo.addEventListener('click', () => connect({mode:'demo'}, demo));
+  demo?.addEventListener('click', () => connect({mode:'demo'}, demo));
   form?.addEventListener('submit', event => {
     event.preventDefault();
     const values = new FormData(form);

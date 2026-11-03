@@ -6,3 +6,7 @@ flask==3.1.0
 
 # Machine Learning anomaly detection (Isolation Forest)
 scikit-learn==1.6.1
+
+# Hosted workspace persistence and encrypted temporary sessions
+psycopg[binary]>=3.2,<4
+cryptography>=44,<47

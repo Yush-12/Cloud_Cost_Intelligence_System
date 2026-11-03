@@ -1,9 +1,9 @@
 """Opt-in lab review tagging. No resource shutdown or savings claims."""
-import argparse
 from datetime import datetime, timezone
 import hashlib
-import math
 import json
+import math
+from statistics import median
 
 import boto3
 from botocore.config import Config
@@ -296,10 +296,57 @@ def generate_optimization_plans(store, account, region, now=None):
     return plans
 
 
+def containment_plan(store, account, region, now=None):
+    if region != 'ap-south-1':
+        return None
+    now = now or datetime.now(timezone.utc)
+    resource = f'arn:aws:lambda:{region}:{account}:function:costintel-lab-workload'
+    for result in analyze(store, 'local', 'aws', account, region):
+        if result['resource_id'] != resource or result['metric'] != 'Duration' or result['status'] != 'outlier':
+            continue
+        if not 0 <= (now - datetime.fromisoformat(result['sample_timestamp'])).total_seconds() <= 900:
+            continue
+        points = [p for p in result['points'] if result['baseline_start'] <= p['timestamp'] <= result['sample_timestamp']]
+        if len(points) < 37 or any(p['unit'] != 'Milliseconds' or p['statistic'] != 'Average' or p['period_seconds'] != 300 for p in points):
+            continue
+        baseline = median(p['value'] for p in points[:-1])
+        latest = points[-1]['value']
+        if baseline <= 0 or latest < max(100, baseline * 3):
+            continue
+        evidence = {'metric': 'Duration', 'sample_timestamp': result['sample_timestamp'],
+                    'baseline_median_ms': baseline, 'sample_ms': latest, 'score': result['score'],
+                    'baseline_points': result['baseline_points']}
+        key = hashlib.sha256(json.dumps([account, region, resource, evidence], sort_keys=True).encode()).hexdigest()
+        for action in store.containment_history('local', 'aws', account, region):
+            if action['resource'] == resource and (now - datetime.fromisoformat(action['created_at'])).total_seconds() < 3600:
+                return None
+        return {'id': key, 'action': 'contain_lambda', 'account': account, 'region': region, 'resource': resource,
+                'reason': 'Fresh duration outlier exceeds 3x baseline and 100 ms; investigate workload context.',
+                'effect': 'Sets reserved concurrency to 0, blocking new executions until explicitly restored.',
+                'required_tags': {'CostIntelLab': 'true', 'CostIntelContainment': 'true'},
+                'evidence': evidence, 'est_monthly_savings_usd': None, 'reversible': True}
+    return None
+
+
+def apply_detected_containment(store, sdk, plan):
+    from costintel.containment import apply, client_for, initialize
+    initialize(store)
+    with store.connect() as db:
+        row = db.execute('SELECT plan, status FROM containment_actions WHERE id=?', (plan['id'],)).fetchone()
+    if row:
+        old = json.loads(row[0])
+        if old['account'] != plan['account'] or old['resource'] != plan['resource']:
+            raise ValueError('Containment scope mismatch')
+        return {'id': plan['id'], 'status': row[1], 'replayed': False}
+    current = containment_plan(store, plan['account'], plan['region'])
+    if not current or current['id'] != plan['id']:
+        raise ValueError('Anomaly evidence expired or changed; collect and review again')
+    return apply(store, client_for(sdk, plan['account']), plan['account'], action_id=plan['id'], evidence=plan['evidence'])
+
+
 def apply_optimization_plan(store, session, plan):
     action = plan.get('action')
     if action == 'contain_lambda':
-        from costintel.policies import apply_detected_containment
         return apply_detected_containment(store, session, plan)
     if action == 'tag_for_review':
         return apply_review(store, session, plan)
@@ -308,37 +355,3 @@ def apply_optimization_plan(store, session, plan):
     elif action == 'tag_unused_volume':
         return apply_tag_volume(store, session, plan)
     raise ValueError(f'Unknown optimization action: {action}')
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--account', required=True)
-    parser.add_argument('--region', default='ap-south-1')
-    parser.add_argument('--database', default='.local-data/inventory.sqlite3')
-    parser.add_argument('--profile')
-    parser.add_argument('--apply', action='store_true')
-    parser.add_argument('--action-type', choices=['all', 'review', 'stop-ec2', 'tag-volume'], default='all')
-    args = parser.parse_args()
-    store = SnapshotStore(args.database)
-    if args.action_type == 'review':
-        rev = review_plan(store, args.account, args.region)
-        plans = [rev] if rev else []
-    elif args.action_type == 'stop-ec2':
-        plans = idle_ec2_plan(store, args.account, args.region)
-    elif args.action_type == 'tag-volume':
-        plans = unused_volume_plan(store, args.account, args.region)
-    else:
-        plans = generate_optimization_plans(store, args.account, args.region)
-
-    if not args.apply:
-        print(json.dumps({'mode': 'dry_run', 'plans': plans, 'count': len(plans)}, indent=2))
-        return
-    if not args.profile:
-        parser.error('--apply requires --profile')
-    session = boto3.Session(profile_name=args.profile)
-    results = [apply_optimization_plan(store, session, p) for p in plans]
-    print(json.dumps({'mode': 'applied', 'results': results, 'count': len(results)}, indent=2))
-
-
-if __name__ == '__main__':
-    main()

@@ -24,9 +24,9 @@ The separate `scripts.verify_containment` workflow is for an explicitly reviewed
 
 Browser provision/teardown endpoints are disabled. Use the scoped Terraform lab under `infra/lambda-lab`, inspect the plan, verify account/region and review allowances before any apply. Terraform destroy needs its state file and a reviewed removal plan. Stopping compute alone is not complete cleanup.
 
-## Public demo
+## Hosted website
 
-Vercel and Docker are demo-only. They do not accept AWS credentials. Docker publishes localhost:5002; real AWS sessions stay on the local loopback workspace. A public multi-account service needs real user authentication, account roles, tenant isolation, durable storage and workers before enabling cloud connections.
+Vercel uses Neon Postgres for scoped telemetry history and encrypted temporary AWS sessions. The public demo is removed from its login page. Hosted cloud actions and restoration remain disabled until their durable recovery journal is built and validated. See [hosted setup](docs/HOSTED_SETUP.md). Docker remains an offline demo on localhost:5002.
 
 ## Troubleshooting
 

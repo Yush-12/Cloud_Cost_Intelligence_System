@@ -1,6 +1,7 @@
 """Loopback-only development viewer, FinOps orchestration console, and ephemeral auth gateway.
 """
 from datetime import datetime, timezone
+from datetime import timedelta
 import json
 import secrets
 import uuid
@@ -16,21 +17,21 @@ from costintel.detection import analyze
 from costintel.inventory import collect_aws, collect_demo
 
 
-def calculate_est_savings(store, owner, mode, account, region):
-    return None  # Billing reconciliation is not implemented.
-
-
-def create_app(store, owner, mode, account, region, *, deployment="local"):
+def create_app(store, owner, mode, account, region, *, deployment="local", session_registry=None, session_secret=None):
     app = Flask(__name__)
-    app.secret_key = secrets.token_hex(32)
+    app.secret_key = session_secret or secrets.token_hex(32)
     app.config.update(MAX_CONTENT_LENGTH=16384, SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE="Strict", SESSION_TTL_SECONDS=3600)
+    if deployment == 'hosted':
+        if session_registry is None or not session_secret:
+            raise ValueError('Hosted mode requires durable sessions and a stable secret')
+        app.config.update(SESSION_COOKIE_SECURE=True, PERMANENT_SESSION_LIFETIME=timedelta(days=30))
     if deployment == "local":
         app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
 
 
     # In-memory ephemeral session credentials (RAM only, never saved to disk or DB)
-    active_sessions = {}
+    active_sessions = session_registry if deployment == 'hosted' else {}
     execution_lock = RLock()
 
     app.extensions['workspace_sessions'] = active_sessions
@@ -94,7 +95,6 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
         if data:
             age = max(0, (datetime.now(timezone.utc) -
                           datetime.fromisoformat(data["collected_at"])).total_seconds())
-        est_savings = calculate_est_savings(store, o, m, acc, reg)
         return {
             "mode": m,
             "account_id": acc,
@@ -105,7 +105,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
             "stale": age is not None and age > 900,
             "optimization_enabled": False,
             "snapshot": data,
-            "est_monthly_savings": est_savings,
+            "est_monthly_savings": None,
         }
 
     # =========================================================================
@@ -114,7 +114,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
 
     @app.get("/login")
     def login_page():
-        return render_template("login.html", csrf=csrf(), local=deployment == "local")
+        return render_template("login.html", csrf=csrf(), local=deployment != "demo", hosted=deployment == 'hosted')
 
     @app.post("/api/auth/login")
     def api_login():
@@ -125,20 +125,25 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
         reg = req.get("region", "ap-south-1").strip()
         req_mode = req.get("mode", "").strip()
 
-        if deployment != 'local' and req_mode != 'demo':
-            return jsonify(error='AWS connections require a local workspace'), 403
+        if deployment == 'demo' and req_mode != 'demo':
+            return jsonify(error='AWS connections are unavailable in demo mode'), 403
+        if deployment == 'hosted' and req_mode == 'demo':
+            return jsonify(error='Connect your AWS account to use this site'), 403
         if 'profile' in req:
             return jsonify(error='Website connections require temporary credentials; use the CLI for profiles'), 400
         if req_mode != 'demo' and not token:
             return jsonify(error='Temporary credentials require a session token'), 400
         active_sessions.pop(session.get('session_id'), None)
         sid = str(uuid.uuid4())
+        workspace_owner = session.setdefault('workspace_id', str(uuid.uuid4())) if deployment == 'hosted' else owner
+        if deployment == 'hosted':
+            session.permanent = True
 
         # 1. Offline Demo Mode
         if req_mode == "demo":
             active_sessions[sid] = {
                 "expires": time.monotonic() + app.config["SESSION_TTL_SECONDS"],
-                "owner": owner,
+                "owner": workspace_owner,
                 "mode": "demo",
                 "profile": None,
                 "account_id": "demo-account",
@@ -175,7 +180,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
             # Store in RAM only
             active_sessions[sid] = {
                 "expires": time.monotonic() + app.config["SESSION_TTL_SECONDS"],
-                "owner": owner,
+                "owner": workspace_owner,
                 "mode": "aws",
                 "profile": None,
                 "sdk": ephemeral_sess,
@@ -193,9 +198,12 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
             # Collect initial inventory
             try:
                 data = collect_aws(reg, session=ephemeral_sess, expected_account=ident["Account"], with_metrics=False)
-                store.save(owner, data)
+                store.save(workspace_owner, data)
             except Exception:
-                pass
+                if deployment == 'hosted':
+                    active_sessions.pop(sid, None)
+                    session.pop('session_id', None)
+                    return jsonify(error='AWS identity was verified, but the hosted workspace could not save inventory. Check database availability.'), 502
 
             return jsonify({
                 "status": "ok",
@@ -232,7 +240,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
         reg = scope["region"]
         return render_template(
             "dashboard.html",
-            view=current(), csrf=csrf(),
+            view=current(), csrf=csrf(), hosted=deployment == 'hosted',
             detections=analyze(store, o, m, acc, reg),
             actions=store.review_history(o, m, acc, reg),
             containments=store.containment_history(o, m, acc, reg),
@@ -294,6 +302,8 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
 
     @app.get("/api/profiles")
     def list_profiles():
+        if deployment == 'hosted':
+            return jsonify(error='CLI profiles are local-only'), 403
         scope = get_scope()
         cur_mode = scope["mode"]
         cur_profile = scope.get("profile")
@@ -353,15 +363,6 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
     def switch_profile():
         return jsonify(error='Disconnect and reconnect to change AWS identity'), 409
 
-    # =========================================================================
-    # Lab Resource Provisioner & Teardown Endpoints
-    # =========================================================================
-
-    @app.post('/api/lab/provision')
-    @app.post('/api/lab/teardown')
-    def infrastructure():
-        return jsonify(error='Use a reviewed Terraform plan in infra/lambda-lab. Browser provisioning is disabled until complete cleanup is verified.'), 409
-
     @app.post("/api/pipeline/run")
     def run_live_pipeline():
         scope = get_scope()
@@ -384,10 +385,14 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
                 report = run_pipeline(store=store, mode=scope['mode'], account=scope['account_id'],
                     region=scope['region'], session=get_boto3_session() if scope['mode']=='aws' else None,
                     owner=scope['owner'], expected_account=scope['account_id'], with_metrics=scope['mode']=='aws',
-                    max_resources=10, window_hours=hours, apply=False)
+                    max_resources=5 if deployment == 'hosted' else 10,
+                    window_hours=min(hours, 6) if deployment == 'hosted' else hours, apply=False,
+                    action_type='observe' if deployment == 'hosted' else 'all')
                 preview_token = secrets.token_urlsafe(32)
                 scope['preview'] = {'token':preview_token, 'expires':time.monotonic()+300,
                                     'plans':{p['id']:p for p in report['plans_generated']}}
+                if deployment == 'hosted':
+                    active_sessions[session['session_id']] = scope
                 return jsonify(status='success', report=report, summary=format_summary(report),
                                preview_token=preview_token, expires_in=300)
             except Exception:
@@ -418,12 +423,10 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
                 # Consume the selection even on failure; an uncertain API result must never replay automatically.
                 return jsonify(error='Execution was not verified. Inspect the action history and AWS state before collecting a new plan.'),502
 
-    @app.post('/api/workload/stimulate')
-    def direct_stimulate():
-        return jsonify(error='Use the bounded lab CLI for workload experiments'), 409
-
     @app.post("/api/workload/restore")
     def direct_restore():
+        if deployment == 'hosted':
+            return jsonify(error='Hosted cloud actions require durable recovery support'), 403
         scope = get_scope()
         reg = scope["region"]
         acc = scope["account_id"]

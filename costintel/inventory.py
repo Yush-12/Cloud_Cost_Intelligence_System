@@ -7,10 +7,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 
 def annotate_resource_cost(resource):
-    resource['est_monthly_usd'] = None
-    resource['rate_display'] = 'Not estimated'
-    resource['savings_opportunity'] = 'Inspect usage evidence'
-    return resource
+    return {**resource, 'est_monthly_usd': None, 'rate_display': 'Not estimated', 'savings_opportunity': 'Inspect usage evidence'}
 
 
 def collect_aws(region, profile=None, expected_account=None, session=None,
@@ -61,16 +58,17 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
     # Optional/safe read: Storage buckets (S3)
     try:
         s3 = session.client("s3", region_name=region, config=config)
-        bucket_pages=s3.get_paginator('list_buckets').paginate() if s3.can_paginate('list_buckets') is True else [s3.list_buckets()]
-        for bucket in (bucket for page in bucket_pages for bucket in page.get('Buckets',[])):
-            try:
-                loc = s3.get_bucket_location(Bucket=bucket["Name"]).get("LocationConstraint") or "us-east-1"
-                if loc == "EU":
-                    loc = "eu-west-1"
-                if loc == region:
-                    resources.append({"resource_id": bucket["Name"], "service": "s3", "state": "available"})
-            except Exception:
-                warn("s3")
+        pages = s3.get_paginator('list_buckets').paginate() if s3.can_paginate('list_buckets') is True else [s3.list_buckets()]
+        for page in pages:
+            for bucket in page.get('Buckets', []):
+                try:
+                    loc = s3.get_bucket_location(Bucket=bucket["Name"]).get("LocationConstraint") or "us-east-1"
+                    if loc == "EU":
+                        loc = "eu-west-1"
+                    if loc == region:
+                        resources.append({"resource_id": bucket["Name"], "service": "s3", "state": "available"})
+                except Exception:
+                    warn("s3")
         coverage.append("s3")
     except Exception:
         warn("s3")
@@ -78,18 +76,18 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
     # Optional/safe read: Free-tier database (DynamoDB)
     try:
         ddb = session.client("dynamodb", region_name=region, config=config)
-        table_pages=ddb.get_paginator('list_tables').paginate()
-        for table_name in (name for page in table_pages for name in page.get('TableNames',[])):
-            try:
-                desc = ddb.describe_table(TableName=table_name)["Table"]
-                resources.append({
-                    "resource_id": table_name,
-                    "service": "dynamodb",
-                    "state": desc.get("TableStatus", "ACTIVE"),
-                    "billing_mode": desc.get("BillingModeSummary", {}).get("BillingMode", "PAY_PER_REQUEST"),
-                })
-            except Exception:
-                warn("dynamodb")
+        for page in ddb.get_paginator('list_tables').paginate():
+            for table_name in page.get('TableNames', []):
+                try:
+                    desc = ddb.describe_table(TableName=table_name)["Table"]
+                    resources.append({
+                        "resource_id": table_name,
+                        "service": "dynamodb",
+                        "state": desc.get("TableStatus", "ACTIVE"),
+                        "billing_mode": desc.get("BillingModeSummary", {}).get("BillingMode", "PAY_PER_REQUEST"),
+                    })
+                except Exception:
+                    warn("dynamodb")
         coverage.append("dynamodb")
     except Exception:
         warn("dynamodb")

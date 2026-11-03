@@ -1,8 +1,8 @@
 # CostIntel
 
-CostIntel is a cloud usage intelligence lab for AWS. It discovers resources, collects CloudWatch observations, stores time-series history in SQLite, and uses Isolation Forest to flag unusual usage. The local dashboard lets an operator inspect evidence, review eligible actions, execute one action at a time, and verify or restore the result.
+CostIntel is a cloud usage intelligence lab for AWS. It discovers resources, collects CloudWatch observations, stores scoped time-series history, and uses Isolation Forest to flag unusual usage. The local dashboard lets an operator inspect evidence, review eligible actions, execute one action at a time, and verify or restore the result.
 
-**Current scope:** the public [demo](https://cloud-cost-intelligence-system.vercel.app/) uses synthetic data and accepts no AWS credentials. The local website connects to a real AWS account with temporary credentials. A hosted multi-account AWS service is future work. Cost anomalies and dollar savings are **not** established by metric outliers alone; billing reconciliation is not implemented.
+**Current scope:** the local website connects to a real AWS account with temporary credentials and supports guarded actions. A Vercel version with the same dashboard and durable read-only AWS monitoring is prepared for deployment with Neon Postgres; hosted cloud actions remain disabled until durable recovery is implemented. Cost anomalies and dollar savings are **not** established by metric outliers alone; billing reconciliation is not implemented.
 
 ## Run the website locally
 
@@ -39,7 +39,7 @@ The new detection-to-containment bridge has offline tests but has not yet been v
 
 ## Deployments and costs
 
-The Vercel entry point and Docker setup run the offline demo only. Docker publishes port 5002 on the host loopback interface:
+The Vercel entry point now requires Neon Postgres and a stable session secret. It has no public demo fallback. See [hosted setup](docs/HOSTED_SETUP.md). Docker remains an offline demo and publishes port 5002 on the host loopback interface:
 
 ```powershell
 docker compose up --build
@@ -60,4 +60,4 @@ Tests use AWS mocks and stubs. They check isolation, request protection, telemet
 
 1. Validate the detection-to-containment bridge in the opted-in lab with fresh evidence and exact restoration.
 2. Add billing ingestion and measured before/after impact before reporting dollar savings.
-3. Build hosted authentication, cross-account roles, durable tenant isolation, and workers before accepting AWS connections on the public site.
+3. Live-verify hosted AWS monitoring, then add durable action journals and guarded execution to the hosted site.

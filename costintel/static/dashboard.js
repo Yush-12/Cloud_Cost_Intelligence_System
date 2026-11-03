@@ -378,10 +378,6 @@ if (reloadViewBtn) reloadViewBtn.addEventListener('click', () => window.location
 
 if (execOpBtn) {
   execOpBtn.addEventListener('click', async () => {
-    const stimulate = document.querySelector('#dialog-stimulate-select')?.value || 'none';
-    const mode = document.querySelector('#dialog-mode-select')?.value || 'dry_run';
-    const isApply = mode === 'apply';
-
     execOpBtn.disabled = true;
     execOpBtn.textContent = 'Running Ingestion & Isolation Forest...';
 
@@ -394,10 +390,8 @@ if (execOpBtn) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content },
         body: JSON.stringify({
-          apply: isApply,
-          stimulate: stimulate,
-          stimulate_count: 5,
-          window_hours: 48
+          apply: false,
+          window_hours: document.documentElement.dataset.hosted === 'true' ? 6 : 48
         })
       });
 

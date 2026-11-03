@@ -1,7 +1,7 @@
 import json
 from unittest.mock import Mock
 
-from costintel.experiment import report
+from scripts.experiment_report import report
 
 
 def test_report_distinguishes_completed_uncertain_and_missing(tmp_path):

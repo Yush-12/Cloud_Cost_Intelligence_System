@@ -74,7 +74,7 @@ def test_preview_uses_connected_sdk(app):
 def test_unsafe_operations_disabled(app):
     c=app.test_client();connect(c,mode='demo')
     for path in ('lab/provision','lab/teardown','workload/stimulate'):
-        assert post(c,'/api/'+path).status_code==409
+        assert post(c,'/api/'+path).status_code==404
     assert post(c,'/api/workload/restore').status_code==400
     assert post(c,'/api/workload/restore',{'action_id':'x'}).status_code==403
 

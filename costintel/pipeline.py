@@ -18,6 +18,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from costintel.actions import (
     apply_optimization_plan,
+    containment_plan,
     generate_optimization_plans,
     idle_ec2_plan,
     review_plan,
@@ -79,7 +80,6 @@ def run_pipeline(
             plans.append(p)
 
     if mode == 'aws' and action_type in ('all', 'contain-lambda'):
-        from costintel.policies import containment_plan
         containment = containment_plan(store, account, region)
         if containment:
             plans.append(containment)
@@ -165,57 +165,4 @@ def format_summary(report):
         lines.append(f"       -> Status: {res.get('status')} (id: {res.get('id')})")
     lines.append("=" * 60)
     return "\n".join(lines)
-
-
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', required=True, choices=['demo', 'aws'])
-    parser.add_argument('--account', default='demo-account', help='Account ID (required in AWS mode)')
-    parser.add_argument('--region', default='ap-south-1')
-    parser.add_argument('--profile', help='AWS profile name')
-    parser.add_argument('--expected-account', help='Expected account for validation')
-    parser.add_argument('--database', default='.local-data/inventory.sqlite3')
-    parser.add_argument('--with-metrics', action='store_true', default=True)
-    parser.add_argument('--max-resources', type=int, default=10)
-    parser.add_argument('--window-hours', type=int, default=1)
-    parser.add_argument('--apply', action='store_true', help='Execute eligible plans (dry-run by default)')
-    parser.add_argument('--action-type', choices=['all', 'review', 'stop-ec2', 'tag-volume', 'contain-lambda'], default='all')
-    parser.add_argument('--threshold-cpu', type=float, default=2.0)
-    parser.add_argument('--json', action='store_true', help='Output raw JSON only')
-    args = parser.parse_args(argv)
-
-    if args.mode == 'aws' and args.account == 'demo-account':
-        parser.error('--account is required when --mode is aws')
-    if args.apply and args.mode == 'aws' and not args.profile:
-        parser.error('--apply in AWS mode requires --profile')
-
-    store = SnapshotStore(args.database)
-    try:
-        report = run_pipeline(
-            store=store,
-            mode=args.mode,
-            account=args.account,
-            region=args.region,
-            profile=args.profile,
-            expected_account=args.expected_account,
-            with_metrics=args.with_metrics,
-            max_resources=args.max_resources,
-            window_hours=args.window_hours,
-            apply=args.apply,
-            action_type=args.action_type,
-            threshold_cpu=args.threshold_cpu,
-        )
-    except (BotoCoreError, ClientError, ValueError) as exc:
-        print(f"Pipeline error: {exc}", file=sys.stderr)
-        return 1
-
-    if args.json:
-        print(json.dumps(report, indent=2))
-    else:
-        print(format_summary(report))
-    return 0
-
-
-if __name__ == '__main__':
-    raise SystemExit(main())
 

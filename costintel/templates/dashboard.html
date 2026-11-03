@@ -15,7 +15,7 @@
 </svg>
 {%- endmacro %}
 <!doctype html>
-<html lang="en">
+<html lang="en" data-hosted="{{ 'true' if hosted else 'false' }}">
 <head>
   <meta name="csrf-token" content="{{ csrf }}">
   <meta charset="utf-8">
@@ -104,6 +104,7 @@
           <div class="eyebrow"><span class="short-line"></span> YOUR CLOUD, IN CONTEXT</div>
           <h1>Clarity at every layer<span>.</span></h1>
           <p>Understand what changed. Investigate the telemetry evidence. Stay in control.</p>
+          {% if hosted %}<p>Hosted AWS monitoring is read-only while durable action recovery is being built. Use the local workspace for guarded cloud actions.</p>{% endif %}
         </div>
         <div class="hero-actions">
           <span class="region-label">{{ view.region }} <span>/ {{ 'AWS Multi-Service' if view.mode == 'aws' else 'Simulated Environment' }}</span></span>
@@ -523,24 +524,6 @@
     </div>
     <h2 id="operation-title">Collect & Preview Pipeline</h2>
     <p id="operation-message" aria-live="polite">Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. Collection does not change AWS resources. Eligible plans can be reviewed and explicitly executed below.</p>
-
-    <div style="margin: 18px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-      <div>
-        <label for="dialog-stimulate-select">Workload Stimulation</label>
-        <select id="dialog-stimulate-select" style="width: 100%;">
-          <option value="none">None (Passive Ingestion)</option>
-
-
-        </select>
-      </div>
-      <div>
-        <label for="dialog-mode-select">Action Mode</label>
-        <select id="dialog-mode-select" style="width: 100%;">
-          <option value="dry_run" selected>Dry Run (Preview Plans Only)</option>
-
-        </select>
-      </div>
-    </div>
 
     <div id="operation-results"></div>
     <div id="reviewed-plans" aria-live="polite"></div>
