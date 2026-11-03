@@ -382,7 +382,11 @@ if (execOpBtn) {
     execOpBtn.textContent = 'Running Ingestion & Isolation Forest...';
 
     if (opResults) {
-      opResults.innerHTML = '<pre>[PREVIEW] Collecting workspace observations and evaluating metrics. Demo workspaces make no AWS calls.</pre>';
+      opResults.replaceChildren(Object.assign(document.createElement('pre'), {
+        textContent: document.documentElement.dataset.hosted === 'true'
+          ? 'Collecting AWS observations and evaluating metric patterns. This does not change resources.'
+          : '[PREVIEW] Collecting workspace observations and evaluating metrics. Demo workspaces make no AWS calls.'
+      }));
     }
 
     try {
@@ -406,7 +410,9 @@ if (execOpBtn) {
         opResults.replaceChildren(Object.assign(document.createElement('pre'), {textContent:text}));
       }
 
-      showToast('Pipeline Cycle Complete', 'Collection complete. Review the generated plans; no AWS changes were applied.', 'success', 4500);
+      showToast('Pipeline Cycle Complete', document.documentElement.dataset.hosted === 'true'
+        ? 'Collection complete. Review the metric evidence; no AWS resources were changed.'
+        : 'Collection complete. Review the generated plans; no AWS changes were applied.', 'success', 4500);
       if (reloadViewBtn) reloadViewBtn.hidden = false;
       execOpBtn.textContent = 'Cycle Finished';
       renderPlans(data);
