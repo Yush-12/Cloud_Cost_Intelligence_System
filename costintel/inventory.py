@@ -23,10 +23,16 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
     resources = []
     warnings = []
     coverage = ['ec2','lambda']
+    required_reads = {
+        'ebs': ['ec2:DescribeVolumes'],
+        's3': ['s3:ListAllMyBuckets', 's3:GetBucketLocation'],
+        'dynamodb': ['dynamodb:ListTables', 'dynamodb:DescribeTable'],
+    }
     def warn(service, exc):
         code = (exc.response.get('Error', {}).get('Code', 'AWS error')
                 if isinstance(exc, ClientError) else type(exc).__name__)
         warnings.append({'service':service,'code':code,
+                         'required_reads':required_reads[service],
                          'message':'Inventory incomplete; check read permissions and availability.'})
     # Core compute inventory
     ec2 = session.client("ec2", region_name=region, config=config)

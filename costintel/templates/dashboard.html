@@ -181,7 +181,9 @@
         <details class="coverage-notice">
           <summary>{{ snap.warnings|length }} inventory sources need attention</summary>
           {% for warning in snap.warnings %}
-            <p><strong>{{ warning.service|upper }}</strong> · {{ warning.code }} · {{ warning.message }}</p>
+            <p><strong>{{ warning.service|upper }}</strong> · {{ warning.code }} · {{ warning.message }}
+              {% if warning.required_reads is defined %}<br><small>Check IAM access for {{ warning.required_reads|join(', ') }} on the connected identity.</small>{% endif %}
+            </p>
           {% endfor %}
         </details>
       {% endif %}

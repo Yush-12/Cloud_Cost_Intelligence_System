@@ -25,6 +25,7 @@ def test_inventory_warning_reports_aws_error_code_without_leaking_message():
 
     data = collect_aws('ap-south-1', session=session)
     assert data['warnings'] == [{'service': 'ebs', 'code': 'AccessDenied',
+                                 'required_reads': ['ec2:DescribeVolumes'],
                                  'message': 'Inventory incomplete; check read permissions and availability.'}]
     assert 'private diagnostic' not in str(data)
 
