@@ -17,6 +17,7 @@ class HostedSessions:
         with store.connect() as db:
             db.execute('''CREATE TABLE IF NOT EXISTS hosted_sessions (
                 sid TEXT PRIMARY KEY, payload BYTEA NOT NULL, expires_at DOUBLE PRECISION NOT NULL)''')
+            db.execute('DELETE FROM hosted_sessions WHERE expires_at <= %s', (time.time(),))
 
     def __setitem__(self, sid, scope):
         payload={k:v for k,v in scope.items() if k != 'sdk'}
@@ -30,12 +31,16 @@ class HostedSessions:
     def get(self, sid, default=None):
         if not sid:
             return default
+        now = time.time()
         with self.store.connect() as db:
             row=db.execute('SELECT payload,expires_at FROM hosted_sessions WHERE sid=%s',(sid,)).fetchone()
-        if not row or row[1] <= time.time():
+            if row and row[1] <= now:
+                db.execute('DELETE FROM hosted_sessions WHERE sid=%s AND expires_at <= %s', (sid, now))
+                return default
+        if not row:
             return default
         scope=json.loads(self.cipher.decrypt(bytes(row[0])).decode())
-        scope['expires']=time.monotonic()+(row[1]-time.time())
+        scope['expires']=time.monotonic()+max(0, row[1]-time.time())
         if scope.get('mode') == 'aws':
             scope['sdk']=boto3.Session(region_name=scope['region'],**scope['credentials'])
         return scope

@@ -142,7 +142,7 @@
         <summary>{{ 'How does my connection work?' if local else 'What is in this demo?' }}</summary>
         <div class="details-body">{% if local %}<p>We verify your AWS identity before opening the workspace. Root credentials are not
             accepted.</p>
-          {% if hosted %}<p>Your temporary credentials are encrypted in the hosted database for up to one hour or until you disconnect. The browser cookie contains no AWS keys.</p>
+          {% if hosted %}<p>Your temporary credentials are encrypted in the hosted database. Access expires after one hour or when you disconnect; expired records are deleted on later app activity. The browser cookie contains no AWS keys.</p>
           <p>Connecting collects inventory. Monitoring is read-only on this website; collection does not change AWS resources.</p>
           {% else %}<p>Credentials entered here stay in application memory for up to one hour or until you disconnect. Disconnect to clear this local session.</p>
           <p>Connecting collects inventory. Cloud resource changes require separate, explicit execution; collection previews plans before you explicitly execute an eligible action.</p>{% endif %}{% else %}<p>Demo observations are

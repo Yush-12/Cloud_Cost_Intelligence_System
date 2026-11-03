@@ -104,3 +104,23 @@ def test_hosted_sessions_encrypt_credentials_and_survive_new_instance(tmp_path):
     assert scope['credentials']['aws_session_token']=='private-test-token'
     second.pop('session-1')
     assert 'session-1' not in first
+
+    first['expired-on-lookup']={'expires':time.monotonic()+3600,'owner':'owner-1','mode':'aws',
+        'account_id':'123456789012','region':'ap-south-1',
+        'credentials':{'aws_access_key_id':'ASIATEST','aws_secret_access_key':'private-test-secret',
+                       'aws_session_token':'private-test-token'}}
+    with sqlite3.connect(database.path) as db:
+        db.execute('UPDATE hosted_sessions SET expires_at=? WHERE sid=?', (time.time()-1, 'expired-on-lookup'))
+    assert first.get('expired-on-lookup') is None
+    with sqlite3.connect(database.path) as db:
+        assert db.execute('SELECT 1 FROM hosted_sessions WHERE sid=?', ('expired-on-lookup',)).fetchone() is None
+
+    first['expired-on-start']={'expires':time.monotonic()+3600,'owner':'owner-1','mode':'aws',
+        'account_id':'123456789012','region':'ap-south-1',
+        'credentials':{'aws_access_key_id':'ASIATEST','aws_secret_access_key':'private-test-secret',
+                       'aws_session_token':'private-test-token'}}
+    with sqlite3.connect(database.path) as db:
+        db.execute('UPDATE hosted_sessions SET expires_at=? WHERE sid=?', (time.time()-1, 'expired-on-start'))
+    HostedSessions(database,SECRET)
+    with sqlite3.connect(database.path) as db:
+        assert db.execute('SELECT 1 FROM hosted_sessions WHERE sid=?', ('expired-on-start',)).fetchone() is None
