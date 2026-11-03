@@ -59,7 +59,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
                 return jsonify(error='Refresh this page before submitting'), 403
             if not request.is_json or not isinstance(request.get_json(silent=True), dict):
                 return jsonify(error='JSON object required'), 400
-        public = {'login_page', 'api_login', 'session_info', 'static'}
+        public = {'login_page', 'api_login', 'api_logout', 'session_info', 'static'}
         if request.endpoint not in public and session.get('session_id') not in active_sessions:
             if request.path.startswith('/api/'):
                 return jsonify(error='Connect a workspace first'), 401
@@ -220,8 +220,8 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
     @app.post("/api/auth/logout")
     def api_logout():
         sid = session.get("session_id")
-        if sid and sid in active_sessions:
-            del active_sessions[sid]
+        if sid:
+            active_sessions.pop(sid, None)
         session.clear()
         session["logged_out"] = True
         message = ('Session destroyed. Encrypted temporary credentials deleted.' if deployment == 'hosted'

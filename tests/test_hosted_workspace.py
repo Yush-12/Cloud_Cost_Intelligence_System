@@ -71,6 +71,9 @@ def test_hosted_connection_is_scoped_and_never_generates_action_plans(tmp_path):
     assert logout.status_code==200
     assert b'Encrypted temporary credentials deleted' in logout.data
     assert client.get('/api/inventory').status_code==401
+    assert client.get('/api/session').json['authenticated'] is False
+    assert client.get('/').headers['Location'].endswith('/login')
+    assert post(client,'/api/auth/logout').status_code==200
 
 
 def test_hosted_sessions_encrypt_credentials_and_survive_new_instance(tmp_path):

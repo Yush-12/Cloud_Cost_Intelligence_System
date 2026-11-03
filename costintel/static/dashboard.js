@@ -466,12 +466,47 @@ document.querySelectorAll('.restore[data-id]').forEach(btn => {
    ========================================================================== */
 
 const logoutBtns = document.querySelectorAll('#logout, #logout-top');
+async function sessionIsActive() {
+  const response = await fetch('/api/session', {credentials:'same-origin', cache:'no-store'});
+  if (!response.ok) throw new Error('Could not verify the workspace session');
+  return Boolean((await response.json()).authenticated);
+}
+
+// A browser can restore a previously rendered dashboard from its back-forward cache.
+// Check the server before revealing that restored page.
+window.addEventListener('pagehide', () => document.documentElement.classList.add('session-checking'));
+window.addEventListener('pageshow', async event => {
+  if (!event.persisted) return;
+  try {
+    if (await sessionIsActive()) {
+      document.documentElement.classList.remove('session-checking');
+      return;
+    }
+  } catch (_) {}
+  window.location.replace('/login');
+});
+
 logoutBtns.forEach(btn => {
   btn.addEventListener('click', async () => {
+    logoutBtns.forEach(button => { button.disabled = true; });
+    let disconnected = false;
     try {
-      await fetch('/api/auth/logout', { method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content}, body:'{}' });
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST', credentials:'same-origin', cache:'no-store',
+        headers: {'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content},
+        body:'{}'
+      });
+      disconnected = response.ok;
     } catch (_) {}
-    window.location.href = '/login';
+    if (!disconnected) {
+      try { disconnected = !(await sessionIsActive()); } catch (_) {}
+    }
+    if (disconnected) {
+      window.location.replace('/login');
+    } else {
+      logoutBtns.forEach(button => { button.disabled = false; });
+      showToast('Disconnect failed', 'Your session is still active. Refresh this page and try again.', 'error', 6000);
+    }
   });
 });
 

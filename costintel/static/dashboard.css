@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 
+html.session-checking body {
+  visibility: hidden;
+}
+
 :root {
   color-scheme: dark;
   --bg: #0c1015;
