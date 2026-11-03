@@ -222,7 +222,9 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
             del active_sessions[sid]
         session.clear()
         session["logged_out"] = True
-        return jsonify({"status": "ok", "message": "Session destroyed. Credentials purged from RAM."})
+        message = ('Session destroyed. Encrypted temporary credentials deleted.' if deployment == 'hosted'
+                   else 'Session destroyed. Credentials purged from RAM.')
+        return jsonify({"status": "ok", "message": message})
 
     # =========================================================================
     # Main Dashboard Route
