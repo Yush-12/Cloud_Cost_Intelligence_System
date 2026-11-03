@@ -2,7 +2,7 @@
 
 CostIntel is a cloud usage intelligence lab for AWS. It discovers resources, collects CloudWatch observations, stores scoped time-series history, and uses Isolation Forest to flag unusual usage. The local dashboard lets an operator inspect evidence, review eligible actions, execute one action at a time, and verify or restore the result.
 
-**Current scope:** the local website connects to a real AWS account with temporary credentials and supports guarded actions. A Vercel version with the same dashboard and durable read-only AWS monitoring is prepared for deployment with Neon Postgres; hosted cloud actions remain disabled until durable recovery is implemented. Cost anomalies and dollar savings are **not** established by metric outliers alone; billing reconciliation is not implemented.
+**Current scope:** the local website connects to a real AWS account with temporary credentials and supports guarded actions. The [hosted website](https://cloud-cost-intelligence-system.vercel.app/) uses the same dashboard, Neon Postgres, and durable read-only AWS monitoring; hosted cloud actions remain disabled until durable recovery is implemented. An [optional billing connector](docs/BILLING_OPTION.md) is disabled by default because AWS charges for Cost Explorer API requests. Metric outliers and account-wide billed cost do **not** establish resource-level savings; billing reconciliation is not implemented.
 
 ## Run the website locally
 
@@ -37,6 +37,8 @@ A prior Mumbai experiment invoked the lab Lambda 111 times across 37 five-minute
 
 The new detection-to-containment bridge has offline tests but has not yet been validated live against AWS. Historical observations are too old to authorize a new action.
 
+The hosted website was live-verified in Mumbai on 2026-11-04 with temporary credentials from `costintel-reader`: it discovered the existing lab Lambda, collected five CloudWatch metric series, and displayed a fresh invocation datapoint. EBS, S3, and DynamoDB inventory initially reported IAM denials; after the reader policy was corrected and a fresh session established, the user confirmed all warnings disappeared. This verifies telemetry and inventory, not hosted cloud actions or billed cost accuracy.
+
 ## Deployments and costs
 
 The Vercel entry point now requires Neon Postgres and a stable session secret. It has no public demo fallback. See [hosted setup](docs/HOSTED_SETUP.md). Docker remains an offline demo and publishes port 5002 on the host loopback interface:
@@ -59,5 +61,5 @@ Tests use AWS mocks and stubs. They check isolation, request protection, telemet
 ## Next work
 
 1. Validate the detection-to-containment bridge in the opted-in lab with fresh evidence and exact restoration.
-2. Add billing ingestion and measured before/after impact before reporting dollar savings.
-3. Live-verify hosted AWS monitoring, then add durable action journals and guarded execution to the hosted site.
+2. Live-validate the opt-in billing connector only if API charges are acceptable, then implement defensible before/after impact before reporting dollar savings.
+3. Add durable action journals and guarded execution to the hosted site after separately validating recovery semantics.

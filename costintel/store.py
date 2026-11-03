@@ -25,6 +25,10 @@ class SnapshotStore:
                 timestamp TEXT NOT NULL, unit TEXT NOT NULL, value REAL NOT NULL,
                 PRIMARY KEY (owner, mode, account_id, region, resource_id,
                              metric, statistic, period_seconds, timestamp))""")
+            db.execute("""CREATE TABLE IF NOT EXISTS billing_attempts (
+                owner TEXT NOT NULL, account_id TEXT NOT NULL, attempt_date TEXT NOT NULL,
+                status TEXT NOT NULL, payload TEXT,
+                PRIMARY KEY (owner, account_id, attempt_date))""")
 
     @contextmanager
     def connect(self):
@@ -59,6 +63,33 @@ class SnapshotStore:
                 owner=? AND mode=? AND account_id=? AND region=?
                 ORDER BY sequence DESC LIMIT 1""", (owner, mode, account_id, region)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def billing_claim(self, owner, account_id, attempt_date):
+        with self.connect() as db:
+            result = db.execute("""INSERT OR IGNORE INTO billing_attempts
+                (owner, account_id, attempt_date, status) VALUES (?, ?, ?, 'pending')""",
+                (owner, account_id, attempt_date))
+        return result.rowcount == 1
+
+    def billing_finish(self, owner, account_id, attempt_date, payload):
+        with self.connect() as db:
+            db.execute("""UPDATE billing_attempts SET status='ready', payload=?
+                WHERE owner=? AND account_id=? AND attempt_date=? AND status='pending'""",
+                (json.dumps(payload), owner, account_id, attempt_date))
+
+    def billing_fail(self, owner, account_id, attempt_date):
+        with self.connect() as db:
+            db.execute("""UPDATE billing_attempts SET status='failed'
+                WHERE owner=? AND account_id=? AND attempt_date=? AND status='pending'""",
+                (owner, account_id, attempt_date))
+
+    def billing_latest(self, owner, account_id):
+        with self.connect() as db:
+            row = db.execute("""SELECT attempt_date, status, payload FROM billing_attempts
+                WHERE owner=? AND account_id=? ORDER BY attempt_date DESC LIMIT 1""",
+                (owner, account_id)).fetchone()
+        return ({'attempt_date': row[0], 'status': row[1],
+                 'payload': json.loads(row[2]) if row[2] else None} if row else None)
 
     def review_history(self, owner, mode, account_id, region):
         if owner != 'local' or mode != 'aws':

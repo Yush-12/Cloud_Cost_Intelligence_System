@@ -27,6 +27,10 @@ class HostedSnapshotStore:
                 statistic TEXT NOT NULL, period_seconds INTEGER NOT NULL,
                 timestamp TEXT NOT NULL, unit TEXT NOT NULL, value DOUBLE PRECISION NOT NULL,
                 PRIMARY KEY(owner,mode,account_id,region,resource_id,metric,statistic,period_seconds,timestamp))''')
+            db.execute('''CREATE TABLE IF NOT EXISTS hosted_billing_attempts (
+                owner TEXT NOT NULL, account_id TEXT NOT NULL, attempt_date TEXT NOT NULL,
+                status TEXT NOT NULL, payload JSONB,
+                PRIMARY KEY(owner,account_id,attempt_date))''')
 
     def save(self, owner, snapshot):
         if not owner or snapshot['mode'] != 'aws':
@@ -53,6 +57,34 @@ class HostedSnapshotStore:
                 AND account_id=%s AND region=%s ORDER BY sequence DESC LIMIT 1''',
                 (owner,mode,account_id,region)).fetchone()
         return row[0] if row else None
+
+    def billing_claim(self, owner, account_id, attempt_date):
+        with self.connect() as db:
+            result = db.execute('''INSERT INTO hosted_billing_attempts
+                (owner,account_id,attempt_date,status) VALUES (%s,%s,%s,'pending')
+                ON CONFLICT(owner,account_id,attempt_date) DO NOTHING''',
+                (owner,account_id,attempt_date))
+        return result.rowcount == 1
+
+    def billing_finish(self, owner, account_id, attempt_date, payload):
+        from psycopg.types.json import Jsonb
+        with self.connect() as db:
+            db.execute('''UPDATE hosted_billing_attempts SET status='ready',payload=%s
+                WHERE owner=%s AND account_id=%s AND attempt_date=%s AND status='pending' ''',
+                (Jsonb(payload),owner,account_id,attempt_date))
+
+    def billing_fail(self, owner, account_id, attempt_date):
+        with self.connect() as db:
+            db.execute('''UPDATE hosted_billing_attempts SET status='failed'
+                WHERE owner=%s AND account_id=%s AND attempt_date=%s AND status='pending' ''',
+                (owner,account_id,attempt_date))
+
+    def billing_latest(self, owner, account_id):
+        with self.connect() as db:
+            row=db.execute('''SELECT attempt_date,status,payload FROM hosted_billing_attempts
+                WHERE owner=%s AND account_id=%s ORDER BY attempt_date DESC LIMIT 1''',
+                (owner,account_id)).fetchone()
+        return {'attempt_date':row[0], 'status':row[1], 'payload':row[2]} if row else None
 
     def history(self, owner, mode, account_id, region, resource_id, metric, limit=288):
         if not 1 <= limit <= 2016:

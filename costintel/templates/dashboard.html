@@ -407,8 +407,25 @@
 
       <!-- Section 03: Optimization Impact (Before vs After) -->
       <section id="impact" class="section">
-        <div class="section-head"><div><span class="section-index">03 / IMPACT</span><h2>Evidence, before estimates.</h2></div><span class="pill">Billing not connected</span></div>
-        <div class="panel audit-panel"><div class="audit-entry"><h3>Usage observations are not billed savings.</h3><p>Explore collected metrics and recorded action states below. Dollar savings require billing reconciliation and a defensible before/after comparison; neither is implemented yet.</p><small>Review tags alone do not reduce resource usage. Historical action status is not a live state check.</small></div></div>
+        <div class="section-head"><div><span class="section-index">03 / IMPACT</span><h2>Evidence, before estimates.</h2></div><span class="pill">{{ 'Account billing available' if billing and billing.status == 'ready' else 'Billing not connected' }}</span></div>
+        <div class="panel audit-panel"><div class="audit-entry"><h3>Usage observations are not billed savings.</h3><p>Explore collected metrics and recorded action states below. Dollar savings require a defensible before/after comparison; that calculation is not implemented yet.</p><small>Review tags alone do not reduce resource usage. Historical action status is not a live state check.</small></div></div>
+        {% if billing_enabled and view.mode == 'aws' %}
+        <div class="panel audit-panel"><div class="audit-entry">
+          <h3>AWS Cost Explorer · completed days</h3>
+          <p>Optional account-wide UnblendedCost history, filtered to this AWS account. AWS charges $0.01 per paginated API request. This workspace makes at most one attempt per UTC day and never fetches billing during normal collection.</p>
+          {% if billing and billing.status == 'ready' %}
+            <p>Last fetched {{ billing.payload.fetched_at }}. {{ 'AWS returned more pages; this table is incomplete.' if billing.payload.truncated else 'One response page returned.' }}</p>
+            <div class="table-scroll"><table><thead><tr><th>UTC day</th><th>Unblended cost (USD)</th><th>Status</th></tr></thead><tbody>
+            {% for day in billing.payload.days %}<tr><td>{{ day.date }}</td><td>{{ day.usd }}</td><td>{{ 'Estimated' if day.estimated else 'Reported' }}</td></tr>{% endfor %}
+            </tbody></table></div>
+          {% elif billing and billing.status == 'failed' %}<p>The previous API attempt failed. No automatic retry will occur today.</p>
+          {% elif billing and billing.status == 'pending' %}<p>A billing request was started today. Refresh to check its result; no duplicate request will be made.</p>
+          {% endif %}
+          {% if not billing or billing.attempt_date != billing_today %}<button id="billing-sync" type="button" class="button secondary">Request billing history · $0.01 API call</button>{% endif %}
+          <p id="billing-status" role="status" aria-live="polite"></p>
+          <small>Cost Explorer data is delayed and can differ from the final invoice. This history does not assign cost or savings to an individual resource.</small>
+        </div></div>
+        {% endif %}
       </section>
 
       <section id="actions" class="section">

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from datetime import timedelta
 import json
+import os
 import secrets
 import uuid
 import time
@@ -32,6 +33,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
 
     # In-memory ephemeral session credentials (RAM only, never saved to disk or DB)
     active_sessions = session_registry if deployment == 'hosted' else {}
+    billing_enabled = os.environ.get('COSTINTEL_ENABLE_BILLING') == '1'
     execution_lock = RLock()
 
     app.extensions['workspace_sessions'] = active_sessions
@@ -247,7 +249,35 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
             actions=store.review_history(o, m, acc, reg),
             containments=store.containment_history(o, m, acc, reg),
             optimizations=store.optimization_history(o, m, acc, reg),
+            billing_enabled=billing_enabled,
+            billing=store.billing_latest(o, acc) if billing_enabled and m == 'aws' else None,
+            billing_today=datetime.now(timezone.utc).date().isoformat(),
         )
+
+    @app.post('/api/billing/sync')
+    def sync_billing():
+        if not billing_enabled:
+            return jsonify(error='Billing API access is disabled on this deployment'), 403
+        scope = get_scope()
+        if scope['mode'] != 'aws':
+            return jsonify(error='Billing requires a connected AWS workspace'), 403
+        if request.get_json() != {'confirm_charge': True}:
+            return jsonify(error='Confirm the Cost Explorer API charge for one request'), 400
+        day = datetime.now(timezone.utc).date().isoformat()
+        o, acc = scope['owner'], scope['account_id']
+        if not store.billing_claim(o, acc, day):
+            return jsonify(error='This workspace already attempted billing sync today; no new AWS call was made',
+                           billing=store.billing_latest(o, acc)), 409
+        try:
+            from costintel.billing import fetch_daily_costs
+            data = fetch_daily_costs(get_boto3_session(), acc)
+        except Exception as exc:
+            store.billing_fail(o, acc, day)
+            code = exc.response.get('Error', {}).get('Code') if isinstance(exc, ClientError) else None
+            return jsonify(error='Cost Explorer request failed; no automatic retry will occur today',
+                           aws_code=code), 502
+        store.billing_finish(o, acc, day, data)
+        return jsonify(status='ok', billing=data)
 
     @app.get("/api/inventory")
     def inventory():

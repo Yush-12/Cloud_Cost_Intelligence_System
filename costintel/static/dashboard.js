@@ -475,6 +475,26 @@ logoutBtns.forEach(btn => {
   });
 });
 
+const billingSync = document.querySelector('#billing-sync');
+billingSync?.addEventListener('click', async () => {
+  if (!confirm('AWS charges $0.01 per paginated Cost Explorer API request. Make one account billing request now?')) return;
+  billingSync.disabled = true;
+  const status = document.querySelector('#billing-status');
+  if (status) status.textContent = 'Requesting completed-day cost history…';
+  try {
+    const response = await fetch('/api/billing/sync', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type':'application/json', 'X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content},
+      body: JSON.stringify({confirm_charge:true})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error + (data.aws_code ? ` (${data.aws_code})` : ''));
+    window.location.reload();
+  } catch (error) {
+    if (status) status.textContent = error.message;
+  }
+});
+
 
 // The browser submits IDs only. Plan details and AWS identity stay on the server.
 function renderPlans(data) {
