@@ -444,7 +444,8 @@ def create_app(store, owner, mode, account, region, *, deployment="local", sessi
                     owner=scope['owner'], expected_account=scope['account_id'], with_metrics=scope['mode']=='aws',
                     max_resources=5 if deployment == 'hosted' else 10,
                     window_hours=min(hours, 6) if deployment == 'hosted' else hours, apply=False,
-                    action_type='observe' if deployment == 'hosted' else 'all')
+                    action_type='simulate' if deployment == 'hosted' and scope['mode'] == 'demo'
+                                else 'observe' if deployment == 'hosted' else 'all')
                 preview_token = secrets.token_urlsafe(32)
                 scope['preview'] = {'token':preview_token, 'expires':time.monotonic()+300,
                                     'plans':{p['id']:p for p in report['plans_generated']}}

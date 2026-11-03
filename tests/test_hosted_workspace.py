@@ -61,7 +61,10 @@ def test_hosted_demo_is_stateless_synthetic_and_never_calls_aws(tmp_path, monkey
         assert client.get('/api/metrics?resource_id=demo-lambda-workload&metric=Duration').json['points']
         cycle = post(client,'/api/pipeline/run',{'apply':False,'window_hours':6}).json
         assert cycle['report']['telemetry']['api_calls'] == 0
-        assert cycle['report']['plans_generated'] == []
+        assert len(cycle['report']['plans_generated']) == 2
+        assert all(plan['simulated'] for plan in cycle['report']['plans_generated'])
+        assert cycle['report']['execution']['mode'] == 'simulated_preview'
+        assert all(result['status'] == 'simulated_only' for result in cycle['report']['execution']['results'])
         assert store.latest('hosted','demo','demo-account','ap-south-1') is None
         assert post(client,'/api/plans/execute',{'preview_token':'x','plan_id':'x'}).status_code == 403
         assert post(client,'/api/workload/restore',{'action_id':'x'}).status_code == 403

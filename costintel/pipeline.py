@@ -68,6 +68,19 @@ def run_pipeline(
 
     # Step 3: Policy-Driven Plan Generation
     plans = []
+    if mode == 'demo' and action_type == 'simulate':
+        plans = [
+            {'id': 'demo-containment-001', 'action': 'contain_lambda',
+             'resource': 'demo-lambda-workload', 'account': 'demo-account',
+             'region': region, 'simulated': True,
+             'reason': 'Synthetic Duration spike after 36 baseline observations',
+             'effect': 'Illustrative concurrency limit, then restoration; no AWS call'},
+            {'id': 'demo-review-001', 'action': 'tag_for_review',
+             'resource': 'demo-lambda-workload', 'account': 'demo-account',
+             'region': region, 'simulated': True,
+             'reason': 'Illustrative governance review of the same workload',
+             'effect': 'Illustrative review tag; no AWS call or billed savings'},
+        ]
     if mode == 'aws' and action_type in ('all', 'review'):
         rev = review_plan(store, account, region)
         if rev:
@@ -101,6 +114,8 @@ def run_pipeline(
                     results.append(res)
                 except Exception as exc:
                     results.append({'id': p['id'], 'status': 'failed', 'error': str(exc)})
+    elif mode == 'demo' and action_type == 'simulate':
+        results = [{'id': p['id'], 'status': 'simulated_only', 'action': p['action']} for p in plans]
     else:
         results = [{'id': p['id'], 'status': 'dry_run_pending', 'action': p.get('action')} for p in plans]
 
@@ -127,7 +142,7 @@ def run_pipeline(
         },
         'plans_generated': plans,
         'execution': {
-            'mode': 'applied' if apply else 'dry_run',
+            'mode': 'applied' if apply else 'simulated_preview' if mode == 'demo' and action_type == 'simulate' else 'dry_run',
             'results': results,
         },
     }
