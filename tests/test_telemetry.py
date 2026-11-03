@@ -1,3 +1,4 @@
+from tests.web_helpers import connect
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -60,6 +61,7 @@ def test_viewer_renders_real_zero_and_missing_separately(tmp_path):
     store = SnapshotStore(tmp_path / "data.db")
     store.save("local", data)
     viewer = create_app(store, "local", "aws", "123456789012", "ap-south-1").test_client()
+    connect(viewer)
     html = viewer.get("/").get_data(as_text=True)
     assert "0.0 Percent" in html
     assert "Missing — no datapoints" in html
@@ -142,6 +144,7 @@ def test_metrics_endpoint_cannot_change_account_scope(tmp_path):
     store = SnapshotStore(tmp_path / "data.db")
     store.save("other-owner", sample())
     test_client = create_app(store, "local", "aws", "123456789012", "ap-south-1").test_client()
+    connect(test_client)
     assert test_client.get("/api/metrics").status_code == 400
     result = test_client.get("/api/metrics?resource_id=i-example&metric=CPUUtilization&owner=other-owner").json
     assert result["points"] == []

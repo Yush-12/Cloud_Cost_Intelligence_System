@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose web dashboard ports (5002 for costintel, 5000 for simulation)
-EXPOSE 5002 5000
+EXPOSE 5002
 
-# Default entry point runs the production-grade costintel dashboard in demo mode
-CMD ["python", "-m", "costintel", "serve", "--mode", "demo", "--port", "5002"]
+# Default entry point runs the demo costintel dashboard in demo mode
+CMD ["python", "-m", "costintel", "serve", "--mode", "demo", "--port", "5002", "--host", "0.0.0.0", "--public-demo"]

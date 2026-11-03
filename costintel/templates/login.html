@@ -2,196 +2,52 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CostIntel · Precision Cloud Cost Intelligence & Autonomous FinOps</title>
-  <script src="{{ url_for('static', filename='theme.js') }}"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf }}">
+  <title>CostIntel · {{ 'Connect a workspace' if local else 'Explore the demo' }}</title>
+  <script src="{{ url_for('static',filename='theme.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('static',filename='dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static',filename='login.css') }}">
+  <script src="{{ url_for('static',filename='login.js') }}" defer></script>
 </head>
-<body class="login-body">
-  <div class="login-wrapper">
-    <div class="login-card">
-      <!-- Header -->
-      <header class="login-header">
-        <div class="login-brand">
-          <div class="login-logo-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
-              <polyline points="16 7 22 7 22 13"></polyline>
-            </svg>
-          </div>
-          <div>
-            <span class="brand-title">CostIntel</span>
-            <span class="login-badge">FINOPS ACCESS GATEWAY</span>
-          </div>
-        </div>
-        <h1>Connect AWS Workspace</h1>
-        <p class="login-subtitle">Direct, zero-persistence telemetry ingestion and autonomous cloud optimization. Enter temporary IAM credentials to inspect live resources and remediate cost anomalies.</p>
-      </header>
-
-      <!-- Security Guarantees Callout -->
-      <div class="security-pillars">
-        <div class="pillar-item">
-          <span class="pillar-bullet">1</span>
-          <div>
-            <strong>RAM-Only Lifecycle</strong>
-            <small>Credentials reside strictly in-memory and are never written to disk or SQLite.</small>
-          </div>
-        </div>
-        <div class="pillar-item">
-          <span class="pillar-bullet">2</span>
-          <div>
-            <strong>STS Verification</strong>
-            <small>Identity verified via <code>GetCallerIdentity</code>; root accounts are strictly rejected.</small>
-          </div>
-        </div>
-        <div class="pillar-item">
-          <span class="pillar-bullet">3</span>
-          <div>
-            <strong>Reversible Actions</strong>
-            <small>Cloud API remediations feature instant rollback to unreserved baseline.</small>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main Login Form -->
-      <form id="aws-login-form" class="login-form">
-        <div class="form-group">
-          <label for="aws-access-key">AWS Access Key ID</label>
-          <input id="aws-access-key" name="access_key_id" type="text" class="form-control mono" placeholder="AKIA..." autocomplete="off" spellcheck="false" required>
-        </div>
-
-        <div class="form-group">
-          <div class="label-row">
-            <label for="aws-secret-key">AWS Secret Access Key</label>
-            <button id="toggle-secret-btn" type="button" class="btn-text">Show</button>
-          </div>
-          <input id="aws-secret-key" name="secret_access_key" type="password" class="form-control mono" placeholder="••••••••••••••••••••••••••••••••" autocomplete="off" spellcheck="false" required>
-        </div>
-
-        <div class="form-group">
-          <label for="aws-session-token">AWS Session Token <span class="muted-tag">Optional (Temporary STS)</span></label>
-          <input id="aws-session-token" name="session_token" type="text" class="form-control mono" placeholder="IQoJb3JpZ2luX2VjE..." autocomplete="off" spellcheck="false">
-        </div>
-
-        <div class="form-group">
-          <label for="aws-region">Target AWS Region</label>
-          <select id="aws-region" name="region" class="form-control">
-            <option value="ap-south-1" selected>ap-south-1 (Mumbai · Lab Region)</option>
-            <option value="us-east-1">us-east-1 (N. Virginia)</option>
-            <option value="us-west-2">us-west-2 (Oregon)</option>
-            <option value="eu-west-1">eu-west-1 (Ireland)</option>
-            <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
-          </select>
-        </div>
-
-        <div id="login-error-msg" class="login-alert error" hidden>
-          <span class="alert-icon">✕</span>
-          <span id="login-error-text">Authentication failed. Check your keys and IAM permissions.</span>
-        </div>
-
-        <button id="login-submit-btn" type="submit" class="button primary full-width">
-          <span>Authenticate & Open Workspace</span>
-          <span id="login-spinner" class="spinner" hidden></span>
-        </button>
-      </form>
-
-      <!-- Testing Presets Accordion -->
-      <details class="testing-accordion">
-        <summary>Developer & Evaluator Presets <span class="tag-dev">TESTING</span></summary>
-        <div class="preset-content">
-          <p class="muted">Fast-track connections for local hackathon evaluation. Uses local AWS profiles or simulated sandbox.</p>
-          <div class="preset-buttons">
-            <button type="button" class="preset-btn" data-preset="costintel-deploy">
-              <span class="preset-title">costintel-deploy</span>
-              <span class="preset-desc">Deployment & Containment profile (695313591289)</span>
-            </button>
-            <button type="button" class="preset-btn" data-preset="costintel">
-              <span class="preset-title">costintel</span>
-              <span class="preset-desc">Read-only Telemetry Collector profile (695313591289)</span>
-            </button>
-            <button type="button" class="preset-btn" data-preset="demo">
-              <span class="preset-title">Offline Demo Sandbox</span>
-              <span class="preset-desc">Preloaded multi-service simulated environment</span>
-            </button>
-          </div>
-        </div>
-      </details>
-
-      <footer class="login-footer">
-        <span>CostIntel · Precision Cloud Cost Intelligence</span>
-        <button id="theme-toggle" class="theme-toggle-minimal" type="button" aria-label="Toggle theme">☾</button>
-      </footer>
+<body class="connect-page">
+<a class="connect-skip" href="#connect">Skip to connection options</a>
+<header class="connect-header">
+  <a class="connect-brand" href="/login" aria-label="CostIntel home"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h5l3-7 3 14 3-7h4"/></svg></span>costintel<span class="brand-period">.</span></a>
+  <div class="connect-header-tools"><span class="environment-label"><i></i>{{ 'LOCAL WORKSPACE' if local else 'PUBLIC DEMO' }}</span><button id="theme-toggle" type="button" aria-label="Change theme" class="connect-theme">☾</button></div>
+</header>
+<main class="connect-layout">
+  <section class="connect-story" aria-labelledby="story-title">
+    <p class="connect-eyebrow"><span></span>EVIDENCE BEFORE ACTION</p>
+    <h1 id="story-title">Your cloud.<br> A clearer picture<span>.</span></h1>
+    <p class="story-description">Follow the signals behind your cloud usage. Understand what changed before deciding what to change.</p>
+    <div class="signal-preview" aria-hidden="true">
+      <div class="signal-heading"><span><i></i> THE SIGNAL, IN CONTEXT</span><span>ILLUSTRATION</span></div>
+      <svg viewBox="0 0 480 155" fill="none"><defs><linearGradient id="signal-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="currentColor" stop-opacity=".18"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><path class="preview-grid" d="M0 30h480M0 75h480M0 120h480"/><path fill="url(#signal-fill)" d="M0 112 30 109 60 115 90 104 120 110 150 99 180 109 210 105 240 112 270 98 300 107 330 103 360 108 390 28 420 100 450 104 480 99V155H0Z"/><path class="preview-line" d="M0 112 30 109 60 115 90 104 120 110 150 99 180 109 210 105 240 112 270 98 300 107 330 103 360 108 390 28 420 100 450 104 480 99"/><circle class="preview-outlier" cx="390" cy="28" r="5"/><path class="preview-marker" d="M390 40v97"/></svg>
+      <div class="signal-caption"><span>Observe a pattern</span><span>Investigate the exception ↗</span></div>
     </div>
-  </div>
-
-  <script>
-    // Show/hide secret key
-    const toggleBtn = document.querySelector('#toggle-secret-btn');
-    const secretInput = document.querySelector('#aws-secret-key');
-    if (toggleBtn && secretInput) {
-      toggleBtn.addEventListener('click', () => {
-        const isPass = secretInput.type === 'password';
-        secretInput.type = isPass ? 'text' : 'password';
-        toggleBtn.textContent = isPass ? 'Hide' : 'Show';
-      });
-    }
-
-    // Form submission
-    const form = document.querySelector('#aws-login-form');
-    const submitBtn = document.querySelector('#login-submit-btn');
-    const spinner = document.querySelector('#login-spinner');
-    const errorBox = document.querySelector('#login-error-msg');
-    const errorText = document.querySelector('#login-error-text');
-
-    async function handleLogin(payload) {
-      submitBtn.disabled = true;
-      spinner.hidden = false;
-      errorBox.hidden = true;
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Authentication rejected by AWS STS.');
-        }
-        window.location.href = '/';
-      } catch (err) {
-        errorText.textContent = err.message;
-        errorBox.hidden = false;
-      } finally {
-        submitBtn.disabled = false;
-        spinner.hidden = true;
-      }
-    }
-
-    if (form) {
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const payload = {
-          access_key_id: document.querySelector('#aws-access-key').value.trim(),
-          secret_access_key: document.querySelector('#aws-secret-key').value.trim(),
-          session_token: document.querySelector('#aws-session-token').value.trim() || null,
-          region: document.querySelector('#aws-region').value
-        };
-        handleLogin(payload);
-      });
-    }
-
-    // Presets
-    document.querySelectorAll('.preset-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const preset = btn.dataset.preset;
-        if (preset === 'demo') {
-          handleLogin({ mode: 'demo' });
-        } else {
-          handleLogin({ profile: preset, mode: 'aws', region: 'ap-south-1' });
-        }
-      });
-    });
-  </script>
+    <ol class="connect-benefits"><li><span>01</span><div><strong>See your resources</strong><p>Inventory and usage, together in one workspace.</p></div></li><li><span>02</span><div><strong>Inspect the evidence</strong><p>Metric history, missing data, and experimental outlier detection.</p></div></li><li><span>03</span><div><strong>Keep control</strong><p>Preview eligible actions before explicit execution.</p></div></li></ol>
+  </section>
+  <section class="connection-card" id="connect" aria-labelledby="connect-title">
+    <p class="connect-eyebrow">{{ 'START WITH A WORKSPACE' if local else 'TAKE A LOOK AROUND' }}</p>
+    <h2 id="connect-title">{{ 'Make yourself at home.' if local else 'Explore CostIntel.' }}</h2>
+    <p class="card-intro">{{ 'Try the demo, or connect your AWS account locally.' if local else 'Explore the dashboard with illustrative cloud usage data.' }}</p>
+    <button class="demo-choice" id="demo-connect" type="button"><span class="demo-icon" aria-hidden="true">↗</span><span><strong>Explore the offline demo</strong><small>No AWS account or credentials needed</small></span><span class="choice-arrow" aria-hidden="true">→</span></button>
+    {% if local %}
+    <div class="connect-divider"><span>OR CONNECT YOUR AWS ACCOUNT</span></div>
+    <fieldset class="connection-method"><legend class="connect-sr-only">Connection method</legend><label><input type="radio" name="method" value="profile" checked><span>Local profile <small>Recommended</small></span></label><label><input type="radio" name="method" value="credentials"><span>Temporary credentials</span></label></fieldset>
+    <form id="connection-form">
+      <div id="profile-fields"><label for="local-profile">Your AWS CLI profile</label><input id="local-profile" name="profile" placeholder="e.g. costintel" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-describedby="profile-help"><p id="profile-help" class="field-help">Use a profile already configured on this computer. Start with read-only access.</p></div>
+      <div id="credential-fields" hidden><p class="field-help credential-help">Use temporary AWS credentials. All three fields are required.</p><label for="aws-access-key">Access key ID</label><input id="aws-access-key" name="access_key_id" placeholder="Temporary access key ID" autocomplete="off" autocapitalize="none" spellcheck="false" disabled><div class="field-label-row"><label for="aws-secret-key">Secret access key</label><button type="button" class="reveal-secret" data-reveal="aws-secret-key" aria-label="Show secret access key" aria-pressed="false">Show</button></div><input id="aws-secret-key" name="secret_access_key" type="password" autocomplete="off" disabled><div class="field-label-row"><label for="aws-session-token">Session token</label><button type="button" class="reveal-secret" data-reveal="aws-session-token" aria-label="Show session token" aria-pressed="false">Show</button></div><input id="aws-session-token" name="session_token" type="password" autocomplete="off" spellcheck="false" disabled></div>
+      <label for="aws-region">AWS region</label><select id="aws-region" name="region"><option value="ap-south-1">Mumbai · ap-south-1</option><option value="ap-south-2">Hyderabad · ap-south-2</option><option value="us-east-1">N. Virginia · us-east-1</option><option value="us-west-2">Oregon · us-west-2</option><option value="eu-west-1">Ireland · eu-west-1</option><option value="ap-southeast-1">Singapore · ap-southeast-1</option></select><p class="field-help region-help">Collection uses this region. Lab actions currently support Mumbai only.</p>
+      <button id="connect-submit" type="submit" class="connect-submit"><span>Connect AWS workspace</span><span aria-hidden="true">→</span></button>
+    </form>
+    {% else %}<div class="public-boundary"><strong>Want to connect your own AWS account?</strong><p>Run CostIntel locally from the repository, then connect an existing AWS CLI profile. AWS credentials are not accepted on this public demo.</p></div>{% endif %}
+    <p id="connection-status" role="status" aria-live="polite" hidden></p><p id="connection-error" role="alert" tabindex="-1" hidden></p>
+    <details class="connection-details"><summary>{{ 'How your connection works' if local else 'About this demo' }}<span aria-hidden="true">+</span></summary><div>{% if local %}<p>We verify your AWS identity before opening the workspace. Root credentials are not accepted.</p><p>Credentials entered here stay in application memory for up to one hour or until you disconnect. AWS CLI profiles manage their own credential cache.</p><p>Connecting collects inventory. Cloud resource changes require separate, explicit execution; the browser pipeline is preview-only.</p>{% else %}<p>Demo observations are synthetic, not live AWS readings. Exploring the demo makes no AWS calls and reports no measured dollar savings.</p>{% endif %}</div></details>
+    <noscript><p class="public-boundary">Enable JavaScript to connect this workspace.</p></noscript>
+  </section>
+</main>
+<footer class="connect-footer"><span>Built for understanding. Designed for control.</span><span>AWS usage intelligence <span aria-hidden="true">/</span> CostIntel</span></footer>
 </body>
 </html>
-

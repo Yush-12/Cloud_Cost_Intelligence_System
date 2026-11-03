@@ -34,7 +34,7 @@ const labels = {
 };
 
 const descriptions = {
-  outlier: 'The evaluated observation differs significantly from the learned baseline. Inspect the evidence before choosing an autonomous action.',
+  outlier: 'The evaluated observation differs significantly from the learned baseline. Inspect the evidence before choosing an action.',
   within_baseline: 'The evaluated sample is within learned baseline tolerances. Workload runtime bounds are stable.',
   insufficient_data: 'More consecutive observations are required to formulate a robust isolation forest baseline.',
   insufficient_variation: 'Baseline variance is zero or constant. Model requires dynamic variation before calculating score.'
@@ -294,12 +294,9 @@ function showToast(title, message, type = 'info', duration = 4000) {
   if (!container) return;
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <div style="flex: 1;">
-      <strong>${title}</strong>
-      <p>${message}</p>
-    </div>
-  `;
+  const content=document.createElement('div');
+  content.append(Object.assign(document.createElement('strong'),{textContent:title}), Object.assign(document.createElement('p'),{textContent:message}));
+  toast.append(content);
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';
@@ -349,13 +346,13 @@ if (execOpBtn) {
     execOpBtn.textContent = 'Running Ingestion & Isolation Forest...';
 
     if (opResults) {
-      opResults.innerHTML = '<pre>[PIPELINE START] Connecting to AWS telemetry APIs & running ML anomaly analysis...</pre>';
+      opResults.innerHTML = '<pre>[PREVIEW] Collecting workspace observations and evaluating metrics. Demo workspaces make no AWS calls.</pre>';
     }
 
     try {
       const res = await fetch('/api/pipeline/run', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content },
         body: JSON.stringify({
           apply: isApply,
           stimulate: stimulate,
@@ -372,17 +369,17 @@ if (execOpBtn) {
         if (data.logs && data.logs.length) {
           text += '\n--- EXECUTION AUDIT LOGS ---\n' + data.logs.join('\n');
         }
-        opResults.innerHTML = `<pre>${text}</pre>`;
+        opResults.replaceChildren(Object.assign(document.createElement('pre'), {textContent:text}));
       }
 
-      showToast('Pipeline Cycle Complete', `Executed successfully. Run-rate savings: -$${(data.est_monthly_savings || 0).toFixed(2)}/mo`, 'success', 4500);
+      showToast('Pipeline Cycle Complete', 'Collection complete. Review the generated plans; no AWS changes were applied.', 'success', 4500);
       if (reloadViewBtn) reloadViewBtn.hidden = false;
       execOpBtn.textContent = 'Cycle Finished';
 
-      setTimeout(() => window.location.reload(), 2200);
+
     } catch (err) {
       if (opResults) {
-        opResults.innerHTML = `<pre style="color: var(--amber);">[ERROR] ${err.message}</pre>`;
+        opResults.replaceChildren(Object.assign(document.createElement('pre'), {textContent:'[ERROR] '+err.message}));
       }
       showToast('Pipeline Execution Error', err.message, 'error', 5000);
       execOpBtn.disabled = false;
@@ -399,6 +396,7 @@ document.querySelectorAll('.restore[data-id]').forEach(btn => {
   btn.addEventListener('click', async () => {
     const actionId = btn.dataset.id;
     const kind = btn.dataset.kind;
+    if (!confirm('Restore the recorded prior state for action '+actionId+'?')) return;
     btn.disabled = true;
     const orig = btn.textContent;
     btn.textContent = 'Restoring...';
@@ -406,7 +404,7 @@ document.querySelectorAll('.restore[data-id]').forEach(btn => {
     try {
       const res = await fetch('/api/workload/restore', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content },
         body: JSON.stringify({ action_id: actionId, kind: kind })
       });
       const data = await res.json();
@@ -429,7 +427,7 @@ const logoutBtns = document.querySelectorAll('#logout, #logout-top');
 logoutBtns.forEach(btn => {
   btn.addEventListener('click', async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { method: 'POST', headers: {'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content}, body:'{}' });
     } catch (_) {}
     window.location.href = '/login';
   });

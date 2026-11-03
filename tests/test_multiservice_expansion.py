@@ -12,13 +12,13 @@ from costintel.provisioner import teardown_lab
 def test_annotate_resource_cost_ebs_and_dynamodb():
     ebs_res = {"resource_id": "vol-12345", "service": "ebs", "size_gb": 100, "state": "available"}
     annotated_ebs = annotate_resource_cost(ebs_res)
-    assert annotated_ebs["est_monthly_usd"] == 8.00  # 100 GB * $0.08/GB-mo
-    assert "gp3" in annotated_ebs["rate_display"]
+    assert annotated_ebs["est_monthly_usd"] is None  # 100 GB * $0.08/GB-mo
+    assert "Not estimated" in annotated_ebs["rate_display"]
 
     ddb_res = {"resource_id": "analytics-table", "service": "dynamodb", "billing_mode": "PAY_PER_REQUEST"}
     annotated_ddb = annotate_resource_cost(ddb_res)
-    assert annotated_ddb["est_monthly_usd"] == 0.00
-    assert "Free Tier" in annotated_ddb["rate_display"]
+    assert annotated_ddb["est_monthly_usd"] is None
+    assert "Not estimated" in annotated_ddb["rate_display"]
 
 
 def test_collect_aws_multi_service_discovery():
@@ -105,7 +105,7 @@ def test_collect_aws_multi_service_discovery():
     )
 
     # DynamoDB list_tables + describe_table
-    ddb_client.list_tables.return_value = {"TableNames": ["cache-table"]}
+    ddb_client.get_paginator.return_value.paginate.return_value = [{"TableNames": ["cache-table"]}]
     ddb_client.describe_table.return_value = {
         "Table": {
             "TableStatus": "ACTIVE",
@@ -131,7 +131,7 @@ def test_collect_aws_multi_service_discovery():
     assert "ebs" in res_by_service
     assert res_by_service["ebs"][0]["resource_id"] == "vol-99887766"
     assert res_by_service["ebs"][0]["size_gb"] == 25
-    assert res_by_service["ebs"][0]["est_monthly_usd"] == 2.00
+    assert res_by_service["ebs"][0]["est_monthly_usd"] is None
 
     # Verify S3 region filtering kept only the ap-south-1 bucket
     assert "s3" in res_by_service
@@ -224,52 +224,11 @@ def test_idle_ec2_plan_validation_rules(tmp_path):
     ]
     store.save("local", snap)
     plans = idle_ec2_plan(store, account, region)
-    assert len(plans) == 1
-    assert plans[0]["action"] == "stop_idle_instance"
-    assert plans[0]["resource"] == "i-testidle"
-    assert plans[0]["evidence"]["sample_count"] == 3
-    assert plans[0]["est_monthly_savings_usd"] == 8.47
+    assert plans == []  # Three stale observations cannot authorize shutdown.
 
 
-def test_teardown_lab_cleans_resources():
-    session = Mock()
-    s3_client = Mock()
-    ddb_client = Mock()
-    ec2_client = Mock()
-    lambda_client = Mock()
-
-    def client_factory(service_name, **kwargs):
-        if service_name == "s3":
-            return s3_client
-        if service_name == "dynamodb":
-            return ddb_client
-        if service_name == "ec2":
-            return ec2_client
-        if service_name == "lambda":
-            return lambda_client
-        return Mock()
-
-    session.client.side_effect = client_factory
-
-    s3_client.get_bucket_tagging.return_value = {
-        "TagSet": [{"Key": "CostIntelLab", "Value": "true"}]
-    }
-    s3_client.list_objects_v2.return_value = {"Contents": [{"Key": "sample.log"}]}
-    ddb_client.list_tags_of_resource.return_value = {
-        "Tags": [{"Key": "CostIntelLab", "Value": "true"}]
-    }
-    ec2_client.describe_instances.return_value = {
-        "Reservations": [{
-            "Instances": [{
-                "InstanceId": "i-labtest",
-                "State": {"Name": "running"},
-                "Tags": [{"Key": "CostIntelLab", "Value": "true"}],
-            }]
-        }]
-    }
-
-    res = teardown_lab(session, "695313591289", "ap-south-1")
-    assert res["status"] == "completed"
-    assert s3_client.delete_bucket.called
-    assert ddb_client.delete_table.called
-    assert ec2_client.stop_instances.called
+def test_teardown_refuses_unverified_cleanup():
+    session=Mock()
+    with pytest.raises(ValueError, match='disabled'):
+        teardown_lab(session, '123456789012')
+    session.client.assert_not_called()

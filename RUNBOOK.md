@@ -1,114 +1,43 @@
-# Cloud Cost Intelligence System — Operational Runbook
+# CostIntel operator runbook
 
-## Overview
+## Local workspace
 
-This runbook covers day-to-day operations, testing, troubleshooting, and emergency recovery for the **Cloud Cost Intelligence System** (`costintel`).
+1. Install requirements in a Python 3.12 virtual environment.
+2. Run `python -m costintel serve --mode demo --port 5002`.
+3. Open the local URL and choose the offline demo or connect your own existing AWS CLI profile. Temporary credential entry requires a session token. Never use root.
+4. Collect and preview. Check account, region, snapshot time, missing metrics and inventory warnings before interpreting results.
+5. Browser collection does not apply plans. Use `python -m costintel.pipeline --help` for explicit CLI execution after reviewing the plan and IAM scope.
 
-The system supports two execution modalities:
-1. **Real AWS Mode**: Connects via temporary IAM credentials to an AWS Free Tier / Tutorial account in Mumbai (`ap-south-1`). Gathers live inventory and CloudWatch telemetry, detects cost anomalies via Isolation Forest ML, and safely executes policy-driven optimizations via cloud APIs with strict opt-in guardrails.
-2. **Demo Mode**: Zero-credential, completely offline local evaluation mode suitable for automated tests, demonstrations, and development without AWS accounts.
+A browser session expires after one hour or server restart. Disconnect removes it from the application registry. CLI credential caches are managed outside the application. The local server is for a trusted single-user machine, not shared hosting.
 
----
+## Execution and restoration
 
-## Command Quick Reference
+Actions require identity validation and resource opt-in. EC2 stop also requires CostIntelIdleStop=true, fresh continuous CPU evidence, and observed final state. Tags do not by themselves prove a workload is safe to interrupt. No EBS deletion is automated.
 
-| Action | Command | Notes |
-|---|---|---|
-| **Run Full FinOps Pipeline (AWS)** | `python -m costintel pipeline --mode aws --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID --with-metrics` | Discovers inventory, ingests CloudWatch metrics, runs ML detection, and generates dry-run optimization plans |
-| **Apply Verified Optimizations (AWS)** | `python -m costintel pipeline --mode aws --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID --with-metrics --apply` | Requires explicit opt-in tags (`CostIntelLab=true` and `AutoOptimize=true`) |
-| **Run Full FinOps Pipeline (Demo)** | `python -m costintel pipeline --mode demo` | Offline mode, zero AWS credentials |
-| **Collect Real AWS Inventory & Metrics** | `python -m costintel collect --mode aws --profile YOUR_PROFILE --expected-account YOUR_ACCOUNT_ID --with-metrics --window-hours 1` | Ingests live 5-minute CloudWatch telemetry into SQLite |
-| **Start Local Web Dashboard** | `python -m costintel serve --mode aws --account YOUR_ACCOUNT_ID --port 5002` | Opens on `http://127.0.0.1:5002` (interactive charts, dark/light theme, audit panels) |
-| **Start Web Dashboard (Demo)** | `python -m costintel serve --mode demo --port 5002` | Runs against local snapshot store |
-| **Preview Review Tagging Plan** | `python -m costintel.actions --account YOUR_ACCOUNT_ID` | Identifies duration / metric outliers |
-| **Apply Review Tag to Lambda** | `python -m costintel.actions --account YOUR_ACCOUNT_ID --profile YOUR_PROFILE --apply` | Commits idempotent review tag `CostIntelReview` |
-| **Preview Lambda Concurrency Containment** | `python -m costintel.containment preview --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID` | Reads current reserved concurrency |
-| **Apply Lambda Containment (Throttle to 0)** | `python -m costintel.containment apply --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID` | Requires `CostIntelContainment=true` |
-| **Restore Lambda Concurrency** | `python -m costintel.containment restore --profile YOUR_PROFILE --account YOUR_ACCOUNT_ID --action-id <UUID>` | Restores original concurrency setting |
-| **Run Automated Pytest Suite** | `python -m pytest tests -q --basetemp=".local-data/pytest-tmp"` | 61 automated unit & integration tests |
+Keep `.local-data/inventory.sqlite3`. Intent is written before API mutations. If a call fails or times out, inspect the recorded uncertain status and actual AWS state before attempting recovery. Do not delete journals or replay uncertain actions blindly.
 
----
+Restore only the exact recorded action from the correct account and region. Lambda restoration uses its recorded prior concurrency, which may be reserved or unreserved. EC2 start waits for a verified running state. Restoration can fail; never infer success from a button click or an accepted API request.
 
-## Autonomous & Policy-Controlled Optimizations
+The separate `scripts.verify_containment` workflow is for an explicitly reviewed lab experiment. Its completed historical journal must not be replayed. The earlier 111-call experiment has finished; no further calls are needed to review existing evidence.
 
-The system enforces four distinct categories of safe cloud optimizations with multi-layer guardrails:
+## Infrastructure
 
-### 1. Limiting Function Concurrency (`containment.py`)
-- **Target**: Runaway serverless functions (high error rates or unbounded execution spikes).
-- **Execution**: Sets reserved concurrency to `0` via `lambda:PutFunctionConcurrency`, stopping new execution invocations.
-- **Guardrails**: Resource must match Mumbai lab ARN; tagged with `CostIntelLab=true` and `CostIntelContainment=true`.
-- **Rollback**: Records exact prior reserved concurrency (or unreserved state) in SQLite table `containment_actions`. Restores via `lambda:DeleteFunctionConcurrency` or original allocation.
+Browser provision/teardown endpoints are disabled. `costintel.provisioner` is not a supported deployment path. Use the scoped Terraform lab under `infra/lambda-lab`, inspect the plan, verify account/region and review allowances before any apply. Terraform destroy needs its state file and a reviewed removal plan. Stopping compute alone is not complete cleanup.
 
-### 2. Tagging Unreviewed Assets & Anomalies (`actions.py`)
-- **Target**: Functions or instances with statistically flagged runtime metric outliers.
-- **Execution**: Applies tag `CostIntelReview: review-<sha256>` via `lambda:TagResource` or `ec2:CreateTags`.
-- **Guardrails**: Tagged with `CostIntelLab=true` and `AutoOptimize=true`; refuses to overwrite existing review tags.
-- **Rollback**: Operators inspect tagged resources and clear the tag after review.
+## Public demo
 
-### 3. Stopping Idle Compute Instances (`actions.py` - `stop_idle_instance`)
-- **Target**: EC2 instances in `running` state with average CPU utilization below threshold (e.g. `< 2.0%`).
-- **Execution**: Calls `ec2:StopInstances` with target state `stopped`.
-- **Guardrails**:
-  - Non-root IAM caller identity matching expected account.
-  - Mumbai region (`ap-south-1`) only.
-  - Instance must be explicitly tagged with `CostIntelLab=true` and `AutoOptimize=true`.
-  - Intent recorded in SQLite table `optimization_actions` before SDK call.
-- **Rollback / Recovery**: Call `apply_start_instance(store, session, action_id)` to restart the instance via `ec2:StartInstances`.
+Vercel and Docker are demo-only. They do not accept AWS credentials. Docker publishes localhost:5002; real AWS sessions stay on the local loopback workspace. A public multi-account service needs real user authentication, account roles, tenant isolation, durable storage and workers before enabling cloud connections.
 
-### 4. Cleaning & Tagging Unused Volumes (`actions.py` - `tag_unused_volume`)
-- **Target**: Orphaned EBS volumes in `available` (unattached) state incurring idle storage charges.
-- **Execution**: Tags the orphaned volume for scheduled cleanup / review.
-- **Guardrails**: Requires opt-in tags (`CostIntelLab=true` and `AutoOptimize=true`).
+## Troubleshooting
 
----
+- 401: connect a workspace again; there is no default credential fallback.
+- 403 on submission: refresh the page for a current CSRF token. Cross-origin requests are rejected.
+- AWS login failure: refresh the local AWS login and verify the selected profile; do not paste credentials into chat.
+- Missing metric: not equivalent to zero. Inspect CloudWatch publication cadence and resource activity.
+- S3 metrics: daily StandardStorage size only, not all storage classes or request activity.
+- No plans: evidence may be stale, incomplete or not eligible. Do not weaken thresholds just to generate a demo action.
+- Dollar impact: not implemented; usage reduction and review tags are not measured savings.
 
-## AWS IAM Security & Least Privilege
+## Offline validation
 
-The system rejects root AWS credentials by design (`sts:GetCallerIdentity` pre-flight check).
-
-### Required IAM Users:
-1. **`costintel-reader`** (Read-Only):
-   - Attached Policy: `infra/inventory-read-policy.json`
-   - Actions: `ec2:DescribeInstances`, `lambda:ListFunctions`, `cloudwatch:GetMetricStatistics`.
-   - Condition: Scoped strictly to `ap-south-1`.
-2. **`costintel-deployer`** (Lab Deployment & Safe Remediation):
-   - Attached Policies:
-     - `infra/lambda-lab/deploy-policy.json`
-     - `infra/lambda-lab/containment-policy.json`
-   - Scoped strictly to the Mumbai lab function ARN.
-
----
-
-## Troubleshooting Guide
-
-### 1. `ExpiredToken` or Session Timeout
-- **Symptom**: AWS SDK calls return `ClientError: The security token included in the request is expired`.
-- **Remedy**: Re-authenticate the temporary session profile:
-  ```powershell
-  aws login --profile costintel-login --region ap-south-1
-  ```
-  Verify active identity:
-  ```powershell
-  aws sts get-caller-identity --profile costintel
-  ```
-
-### 2. Port Collision (e.g. Port 5001 or 5002 in use)
-- **Symptom**: `OSError: [WinError 10048] Only one usage of each socket address is normally permitted`.
-- **Remedy**: Find the listening process and specify an alternative port:
-  ```powershell
-  netstat -ano | findstr :5002
-  Stop-Process -Id <PID> -Force
-  python -m costintel serve --mode aws --account YOUR_ACCOUNT_ID --port 5003
-  ```
-
-### 3. Missing Telemetry Buckets
-- **Symptom**: Metric explorer reports "Missing — no datapoints" or "More history needed".
-- **Explanation**: CloudWatch only emits datapoints when activity occurs. Absent buckets mean zero invocations occurred during that 5-minute interval. The system intentionally treats absent data as missing (unknown) rather than assuming 0.
-- **Remedy**: For evaluation of the Isolation Forest ML model, a minimum of 36 consecutive 5-minute buckets (3 hours) is required.
-
-### 4. Pytest Windows Temp Directory Permission Error
-- **Symptom**: `PermissionError: [WinError 5] Access is denied: ...pytest-of-username`.
-- **Remedy**: Always specify the local temporary base directory:
-  ```powershell
-  python -m pytest tests -q --basetemp=".local-data/pytest-tmp"
-  ```
+Run `python -m pytest -q`. No live AWS mutations are required for the test suite. Browser review uses a separate `.local-data/ui-review.sqlite3` database so the original experiment audit is preserved.

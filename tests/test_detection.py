@@ -1,3 +1,4 @@
+from tests.web_helpers import connect
 from datetime import datetime, timedelta, timezone
 
 from costintel.detection import detect
@@ -63,9 +64,11 @@ def test_dashboard_and_api_scope(tmp_path):
                                           latest=points([50])[0], expected_points=12)]}}
     store.save('local', data)
     client = create_app(store, 'local', 'aws', '123456789012', 'ap-south-1').test_client()
+    connect(client)
     assert client.get('/').status_code == 200
     result = client.get('/api/detection?account=other').json
     assert result['results'][0]['status'] == 'insufficient_data'
     assert result['optimization_enabled'] is False
     other = create_app(store, 'someone-else', 'aws', '123456789012', 'ap-south-1').test_client()
+    connect(other)
     assert other.get('/api/detection').json['results'] == []

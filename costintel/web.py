@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import secrets
 import uuid
+import time
 
 import boto3
 from botocore.config import Config
@@ -16,73 +17,70 @@ from costintel.provisioner import provision_lab, teardown_lab
 
 
 def calculate_est_savings(store, owner, mode, account, region):
-    if mode == 'demo':
-        return 14.31
-    total = 0.0
-    opts = store.optimization_history(owner, mode, account, region)
-    applied_resources = set()
-    for opt in opts:
-        if opt.get('status') == 'applied':
-            total += opt.get('est_monthly_savings_usd', 8.47 if opt.get('action') == 'stop_idle_instance' else 0.64)
-            applied_resources.add(opt.get('resource'))
-
-    containments = store.containment_history(owner, mode, account, region)
-    for c in containments:
-        if c.get('status') == 'contained':
-            total += 5.20
-            applied_resources.add(c.get('resource'))
-
-    # Note: Governance review tags flag anomalies for human review,
-    # but do not alter compute run-rates until remediation is executed.
-
-    if total == 0.0:
-        try:
-            from costintel.actions import generate_optimization_plans
-            plans = generate_optimization_plans(store, account, region)
-            total = sum(p.get('est_monthly_savings_usd', 0.0) for p in plans if p.get('action') != 'tag_for_review')
-        except Exception:
-            pass
-
-    return round(total, 2)
+    return None  # Billing reconciliation is not implemented.
 
 
-def create_app(store, owner, mode, account, region):
+def create_app(store, owner, mode, account, region, *, deployment="local"):
     app = Flask(__name__)
     app.secret_key = secrets.token_hex(32)
+    app.config.update(MAX_CONTENT_LENGTH=16384, SESSION_COOKIE_HTTPONLY=True,
+                      SESSION_COOKIE_SAMESITE="Strict", SESSION_TTL_SECONDS=3600)
+    if deployment == "local":
+        app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
+
 
     # In-memory ephemeral session credentials (RAM only, never saved to disk or DB)
     active_sessions = {}
 
-    state = {
-        "owner": owner,
-        "mode": mode,
-        "account_id": account,
-        "region": region,
-        "profile": "costintel" if mode == "aws" else None,
-    }
+    app.extensions['workspace_sessions'] = active_sessions
+
+    def csrf():
+        if 'csrf' not in session:
+            session['csrf'] = secrets.token_urlsafe(32)
+        return session['csrf']
+
+    @app.before_request
+    def protect():
+        now = time.monotonic()
+        for sid, value in list(active_sessions.items()):
+            if value.get('expires', 0) <= now:
+                active_sessions.pop(sid, None)
+        if request.endpoint is None:
+            return None
+        if request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            origin = request.headers.get('Origin')
+            if origin and origin.rstrip('/') != request.host_url.rstrip('/'):
+                return jsonify(error='Cross-origin request rejected'), 403
+            if not secrets.compare_digest(request.headers.get('X-CSRF-Token', ''), csrf()):
+                return jsonify(error='Refresh this page before submitting'), 403
+            if not request.is_json or not isinstance(request.get_json(silent=True), dict):
+                return jsonify(error='JSON object required'), 400
+        public = {'login_page', 'api_login', 'session_info', 'static'}
+        if request.endpoint not in public and session.get('session_id') not in active_sessions:
+            if request.path.startswith('/api/'):
+                return jsonify(error='Connect a workspace first'), 401
+            return redirect('/login')
+
+    @app.after_request
+    def secure_headers(response):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['Referrer-Policy'] = 'same-origin'
+        return response
+
+    @app.get('/api/session')
+    def session_info():
+        return jsonify(csrf_token=csrf(), authenticated=session.get('session_id') in active_sessions)
 
     def get_scope():
-        sid = session.get("session_id")
-        if sid and sid in active_sessions:
-            return active_sessions[sid]
-        return state
+        return active_sessions[session['session_id']]
 
     def get_boto3_session():
         scope = get_scope()
-        creds = scope.get("credentials")
-        if creds:
-            return boto3.Session(
-                aws_access_key_id=creds["aws_access_key_id"],
-                aws_secret_access_key=creds["aws_secret_access_key"],
-                aws_session_token=creds.get("aws_session_token"),
-                region_name=scope["region"],
-            )
-        if scope.get("profile"):
-            return boto3.Session(profile_name=scope["profile"], region_name=scope["region"])
-        # Default profile fallback
-        if state.get("profile"):
-            return boto3.Session(profile_name=state["profile"], region_name=scope["region"])
-        return boto3.Session(region_name=scope["region"])
+        if scope['mode'] != 'aws' or 'sdk' not in scope:
+            raise ValueError('No authenticated AWS session')
+        return scope['sdk']
 
     def current():
         scope = get_scope()
@@ -115,7 +113,7 @@ def create_app(store, owner, mode, account, region):
 
     @app.get("/login")
     def login_page():
-        return render_template("login.html")
+        return render_template("login.html", csrf=csrf(), local=deployment == "local")
 
     @app.post("/api/auth/login")
     def api_login():
@@ -127,11 +125,17 @@ def create_app(store, owner, mode, account, region):
         prof = req.get("profile", "").strip()
         req_mode = req.get("mode", "").strip()
 
-        sid = session.get("session_id") or str(uuid.uuid4())
+        if deployment != 'local' and req_mode != 'demo' and prof != 'demo':
+            return jsonify(error='AWS connections require a local workspace'), 403
+        if req_mode != 'demo' and prof != 'demo' and not prof and not token:
+            return jsonify(error='Temporary credentials require a session token'), 400
+        active_sessions.pop(session.get('session_id'), None)
+        sid = str(uuid.uuid4())
 
         # 1. Offline Demo Mode
         if req_mode == "demo" or prof == "demo":
             active_sessions[sid] = {
+                "expires": time.monotonic() + app.config["SESSION_TTL_SECONDS"],
                 "owner": owner,
                 "mode": "demo",
                 "profile": None,
@@ -160,9 +164,11 @@ def create_app(store, owner, mode, account, region):
                     return jsonify({"error": "Root credentials are not supported. Use a dedicated IAM user/role."}), 400
 
                 active_sessions[sid] = {
-                    "owner": owner,
+                    "expires": time.monotonic() + app.config["SESSION_TTL_SECONDS"],
+                "owner": owner,
                     "mode": "aws",
                     "profile": prof,
+                    "sdk": test_sess,
                     "account_id": ident["Account"],
                     "region": reg,
                 }
@@ -204,9 +210,11 @@ def create_app(store, owner, mode, account, region):
 
             # Store in RAM only
             active_sessions[sid] = {
+                "expires": time.monotonic() + app.config["SESSION_TTL_SECONDS"],
                 "owner": owner,
                 "mode": "aws",
                 "profile": None,
+                "sdk": ephemeral_sess,
                 "credentials": {
                     "aws_access_key_id": access_key,
                     "aws_secret_access_key": secret_key,
@@ -260,7 +268,7 @@ def create_app(store, owner, mode, account, region):
         reg = scope["region"]
         return render_template(
             "dashboard.html",
-            view=current(),
+            view=current(), csrf=csrf(),
             detections=analyze(store, o, m, acc, reg),
             actions=store.review_history(o, m, acc, reg),
             containments=store.containment_history(o, m, acc, reg),
@@ -330,6 +338,8 @@ def create_app(store, owner, mode, account, region):
 
         discovered = []
         try:
+            if deployment != "local":
+                raise ValueError("Public demo")
             sess = boto3.Session()
             for p in sess.available_profiles:
                 role = "AWS CLI Profile"
@@ -375,115 +385,34 @@ def create_app(store, owner, mode, account, region):
             "profiles": discovered,
         })
 
-    @app.post("/api/profiles/switch")
+    @app.post('/api/profiles/switch')
     def switch_profile():
-        scope = get_scope()
-        req = request.get_json(silent=True) or {}
-        target = req.get("profile", "").strip()
-        target_region = req.get("region") or scope["region"]
-
-        sid = session.get("session_id")
-        target_dict = active_sessions[sid] if (sid and sid in active_sessions) else state
-
-        if target == "demo" or req.get("mode") == "demo":
-            target_dict["mode"] = "demo"
-            target_dict["profile"] = None
-            target_dict["account_id"] = "demo-account"
-            target_dict["region"] = target_region
-            return jsonify({
-                "status": "ok",
-                "message": "Switched to demo simulated environment",
-                "active": {
-                    "mode": "demo",
-                    "profile": "demo",
-                    "account_id": "demo-account",
-                    "region": target_region,
-                },
-            })
-
-        try:
-            cfg = Config(connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 1})
-            sess = boto3.Session(profile_name=target, region_name=target_region)
-            identity = sess.client("sts", region_name=target_region, config=cfg).get_caller_identity()
-            if identity.get("Arn", "").endswith(":root"):
-                return jsonify({"error": "Root credentials are not supported. Use a dedicated IAM user/role."}), 400
-
-            target_dict["mode"] = "aws"
-            target_dict["profile"] = target
-            target_dict["account_id"] = identity["Account"]
-            target_dict["region"] = target_region
-
-            return jsonify({
-                "status": "ok",
-                "message": f"Connected to AWS profile '{target}'",
-                "identity": identity["Arn"],
-                "active": {
-                    "mode": "aws",
-                    "profile": target,
-                    "account_id": identity["Account"],
-                    "region": target_region,
-                },
-            })
-        except Exception as exc:
-            return jsonify({"error": f"Failed to switch to profile '{target}': {str(exc)}"}), 400
+        return jsonify(error='Disconnect and reconnect to change AWS identity'), 409
 
     # =========================================================================
     # Lab Resource Provisioner & Teardown Endpoints
     # =========================================================================
 
-    @app.post("/api/lab/provision")
-    def api_lab_provision():
-        scope = get_scope()
-        cur_mode = scope["mode"]
-        acc = scope["account_id"]
-        reg = scope["region"]
-        if cur_mode != "aws":
-            return jsonify({
-                "status": "provisioned",
-                "message": "Demo mode: 4 simulated multi-service resources ready.",
-                "resources": [
-                    {"service": "ec2", "resource_id": "demo-ec2-workload", "status": "running", "est_monthly_cost": "$8.47 / mo"},
-                    {"service": "lambda", "resource_id": "demo-lambda-workload", "status": "Active", "est_monthly_cost": "$0.20 / 1M reqs"},
-                    {"service": "s3", "resource_id": "costintel-telemetry-archive", "status": "available", "est_monthly_cost": "$0.023 / GB"},
-                    {"service": "dynamodb", "resource_id": "costintel-billing-cache", "status": "ACTIVE", "est_monthly_cost": "Free Tier"},
-                ],
-            })
-
-        try:
-            sess = get_boto3_session()
-            result = provision_lab(sess, acc, region=reg)
-            return jsonify(result)
-        except Exception as exc:
-            return jsonify({"error": f"Lab provisioning failed: {str(exc)}"}), 500
-
-    @app.post("/api/lab/teardown")
-    def api_lab_teardown():
-        scope = get_scope()
-        cur_mode = scope["mode"]
-        acc = scope["account_id"]
-        reg = scope["region"]
-        if cur_mode != "aws":
-            return jsonify({
-                "status": "completed",
-                "message": "Demo lab state reset to baseline.",
-            })
-
-        try:
-            sess = get_boto3_session()
-            result = teardown_lab(sess, acc, region=reg)
-            return jsonify(result)
-        except Exception as exc:
-            return jsonify({"error": f"Lab teardown failed: {str(exc)}"}), 500
-
-    # =========================================================================
-    # Live FinOps Intelligence Pipeline Runner
-    # =========================================================================
+    @app.post('/api/lab/provision')
+    @app.post('/api/lab/teardown')
+    def infrastructure():
+        return jsonify(error='Use a reviewed Terraform plan in infra/lambda-lab. Browser provisioning is disabled until complete cleanup is verified.'), 409
 
     @app.post("/api/pipeline/run")
     def run_live_pipeline():
         scope = get_scope()
         req = request.get_json(silent=True) or {}
-        apply_changes = bool(req.get("apply", False))
+        if type(req.get('apply', False)) is not bool:
+            return jsonify(error='apply must be a boolean'), 400
+        if req.get('apply'):
+            return jsonify(error='Browser runs are preview-only. Apply reviewed plans with the local CLI.'), 409
+        if any(k in req for k in ('profile','region','account')):
+            return jsonify(error='Reconnect to change workspace identity'), 400
+        if type(req.get('window_hours', 1)) is not int or not 1 <= req.get('window_hours', 1) <= 48:
+            return jsonify(error='window_hours must be an integer from 1 to 48'), 400
+        if req.get('stimulate', 'none') != 'none':
+            return jsonify(error='Use the bounded lab CLI for workload experiments'), 409
+        apply_changes = False
         stimulate = req.get("stimulate", "none")
         stim_count = int(req.get("stimulate_count", 5))
         stim_count = max(1, min(20, stim_count))
@@ -557,35 +486,9 @@ def create_app(store, owner, mode, account, region):
                 "logs": logs,
             }), 500
 
-    @app.post("/api/workload/stimulate")
+    @app.post('/api/workload/stimulate')
     def direct_stimulate():
-        scope = get_scope()
-        req = request.get_json(silent=True) or {}
-        scenario = req.get("scenario", "slow")
-        count = int(req.get("count", 5))
-        count = max(1, min(20, count))
-        reg = scope["region"]
-        acc = scope["account_id"]
-        cur_mode = scope["mode"]
-
-        if cur_mode == "aws":
-            try:
-                from scripts.run_lambda_lab import run as run_lab
-                sess = get_boto3_session()
-                res = run_lab(sess, acc, count=count, scenario=scenario)
-                return jsonify({"status": "ok", "result": res})
-            except Exception as exc:
-                return jsonify({"error": str(exc)}), 500
-        else:
-            return jsonify({
-                "status": "ok",
-                "result": {
-                    "scenario": scenario,
-                    "invocations": count,
-                    "simulated": True,
-                    "function_name": "demo-lambda-workload",
-                },
-            })
+        return jsonify(error='Use the bounded lab CLI for workload experiments'), 409
 
     @app.post("/api/workload/restore")
     def direct_restore():
@@ -595,6 +498,10 @@ def create_app(store, owner, mode, account, region):
         cur_mode = scope["mode"]
         req = request.get_json(silent=True) or {}
         action_id = req.get("action_id")
+        if not isinstance(action_id, str) or not action_id:
+            return jsonify(error='A recorded action_id is required; bulk restoration is disabled'), 400
+        if cur_mode != 'aws':
+            return jsonify(error='Demo cannot restore AWS actions'), 403
 
         if cur_mode == "aws":
             sess = get_boto3_session()
@@ -609,7 +516,7 @@ def create_app(store, owner, mode, account, region):
 
                 if c_row:
                     plan = json.loads(c_row[1])
-                    if plan.get("account") != acc:
+                    if plan.get("account") != acc or plan.get("region", "ap-south-1") != reg:
                         return jsonify({"error": "Action does not belong to active account"}), 403
                     try:
                         from costintel.containment import client_for, restore as restore_containment
@@ -620,7 +527,7 @@ def create_app(store, owner, mode, account, region):
                         return jsonify({"error": f"Failed to restore containment: {str(exc)}"}), 500
                 elif o_row:
                     plan = json.loads(o_row[1])
-                    if plan.get("account") != acc:
+                    if plan.get("account") != acc or plan.get("region", "ap-south-1") != reg:
                         return jsonify({"error": "Action does not belong to active account"}), 403
                     try:
                         from costintel.actions import apply_start_instance
@@ -631,65 +538,5 @@ def create_app(store, owner, mode, account, region):
                 else:
                     return jsonify({"error": f"Action ID '{action_id}' not found"}), 404
 
-            # Bulk / default lab workload restoration
-            try:
-                cfg = Config(connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 1})
-                client = sess.client("lambda", region_name=reg, config=cfg)
-                func_arn = f"arn:aws:lambda:{reg}:{acc}:function:costintel-lab-workload"
-                try:
-                    client.delete_function_concurrency(FunctionName=func_arn)
-                except Exception:
-                    pass
-
-                with store.connect() as db:
-                    if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='containment_actions'").fetchone():
-                        c_rows = db.execute("SELECT id, plan FROM containment_actions WHERE status != 'restored'").fetchall()
-                        for r_id, r_plan_str in c_rows:
-                            try:
-                                r_plan = json.loads(r_plan_str)
-                                if r_plan.get("account") == acc:
-                                    db.execute("UPDATE containment_actions SET status='restored' WHERE id=?", (r_id,))
-                            except Exception:
-                                pass
-                    if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='optimization_actions'").fetchone():
-                        o_rows = db.execute("SELECT id, plan FROM optimization_actions WHERE status = 'applied'").fetchall()
-                        for r_id, r_plan_str in o_rows:
-                            try:
-                                r_plan = json.loads(r_plan_str)
-                                if r_plan.get("account") == acc and r_plan.get("region") == reg:
-                                    db.execute("UPDATE optimization_actions SET status='restored' WHERE id=?", (r_id,))
-                            except Exception:
-                                pass
-
-                return jsonify({
-                    "status": "ok",
-                    "message": "Function concurrency restored to baseline. Autonomous throttles removed.",
-                })
-            except Exception as exc:
-                return jsonify({"error": str(exc)}), 500
-        else:
-            with store.connect() as db:
-                if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='containment_actions'").fetchone():
-                    c_rows = db.execute("SELECT id, plan FROM containment_actions WHERE status != 'restored'").fetchall()
-                    for r_id, r_plan_str in c_rows:
-                        try:
-                            r_plan = json.loads(r_plan_str)
-                            if r_plan.get("account") == "demo-account":
-                                db.execute("UPDATE containment_actions SET status='restored' WHERE id=?", (r_id,))
-                        except Exception:
-                            pass
-                if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='optimization_actions'").fetchone():
-                    o_rows = db.execute("SELECT id, plan FROM optimization_actions WHERE status = 'applied'").fetchall()
-                    for r_id, r_plan_str in o_rows:
-                        try:
-                            r_plan = json.loads(r_plan_str)
-                            if r_plan.get("account") == "demo-account":
-                                db.execute("UPDATE optimization_actions SET status='restored' WHERE id=?", (r_id,))
-                        except Exception:
-                            pass
-            return jsonify({
-                "status": "ok",
-                "message": "Demo environment baseline restored.",
-            })
 
     return app

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 import pytest
 
@@ -29,7 +30,7 @@ def test_pipeline_aws_dry_run_and_apply(tmp_path):
         "telemetry": {"series": [{
             "resource_id": inst_id, "service": "ec2", "metric": "CPUUtilization",
             "statistic": "Average", "unit": "Percent", "period_seconds": 300,
-            "points": [{"timestamp": f"2026-11-02T10:{m:02d}:00+00:00", "value": 1.1} for m in range(0, 30, 5)]
+            "points": [{"timestamp":(datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=5*m)).isoformat(),"value":1.1} for m in range(12,0,-1)]
         }]}
     }
     store.save("local", snap)
@@ -55,10 +56,13 @@ def test_pipeline_aws_dry_run_and_apply(tmp_path):
     mock_ec2.describe_instances.return_value = {
         "Reservations": [{"Instances": [{
             "InstanceId": inst_id, "State": {"Name": "running"},
-            "Tags": [{"Key": "CostIntelLab", "Value": "true"}, {"Key": "AutoOptimize", "Value": "true"}]
+            "Tags": [{"Key": "CostIntelLab", "Value": "true"}, {"Key": "AutoOptimize", "Value": "true"}, {"Key":"CostIntelIdleStop","Value":"true"}]
         }]}]
     }
     mock_ec2.stop_instances.return_value = {"StoppingInstances": [{"InstanceId": inst_id, "CurrentState": {"Name": "stopping"}}]}
+
+    instance=mock_ec2.describe_instances.return_value['Reservations'][0]['Instances'][0]
+    mock_ec2.get_waiter.return_value.wait.side_effect=lambda **kw: instance['State'].update(Name='stopped')
 
     # Test dry run
     with patch("boto3.Session", return_value=mock_session):

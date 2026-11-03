@@ -1,5 +1,5 @@
 """Explicit providers. AWS collection never falls back to demonstration data."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from botocore.config import Config
@@ -7,38 +7,9 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 
 def annotate_resource_cost(resource):
-    svc = resource.get("service")
-    state = resource.get("state", "running")
-    if svc == "ec2":
-        itype = resource.get("instance_type", "t2.micro")
-        is_running = state.lower() == "running"
-        cost_val = 8.47 if "micro" in itype else 14.50
-        resource["est_monthly_usd"] = cost_val if is_running else 0.64
-        resource["rate_display"] = f"${cost_val:.2f}/mo" if is_running else "$0.64/mo (EBS)"
-        resource["savings_opportunity"] = "Idle compute - Stop instance to save $8.47/mo" if is_running else "Stopped (Compute costs eliminated)"
-    elif svc == "lambda":
-        resource["est_monthly_usd"] = 0.00
-        resource["rate_display"] = "$0.20 / 1M reqs"
-        resource["savings_opportunity"] = "Runaway duration guard (Saves up to $5.20/mo)"
-    elif svc == "s3":
-        resource["est_monthly_usd"] = 0.00
-        resource["rate_display"] = "$0.023 / GB"
-        resource["savings_opportunity"] = "Lifecycle archival for unreviewed buckets"
-    elif svc == "dynamodb":
-        resource["est_monthly_usd"] = 0.00
-        resource["rate_display"] = "Free Tier (25 RCU/WCU)"
-        resource["savings_opportunity"] = "Pay-per-request baseline safe"
-    elif svc == "ebs":
-        state = resource.get("state")
-        atts = resource.get("attachments", 0)
-        size = resource.get("size_gb", 8)
-        cost = round(size * 0.08, 2)
-        resource["est_monthly_usd"] = cost
-        resource["rate_display"] = f"${cost:.2f} / mo ({size}GB gp3)"
-        if state == "available" and atts == 0:
-            resource["savings_opportunity"] = f"Unattached volume: delete to save ${cost:.2f}/mo"
-        else:
-            resource["savings_opportunity"] = "Attached to active instance"
+    resource['est_monthly_usd'] = None
+    resource['rate_display'] = 'Not estimated'
+    resource['savings_opportunity'] = 'Inspect usage evidence'
     return resource
 
 
@@ -53,6 +24,10 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
     if expected_account and account != expected_account:
         raise ValueError("AWS account does not match --expected-account; collection stopped")
     resources = []
+    warnings = []
+    coverage = ['ec2','lambda']
+    def warn(service):
+        warnings.append({'service':service,'message':'Inventory incomplete; check read permissions and availability.'})
     # Core compute inventory
     ec2 = session.client("ec2", region_name=region, config=config)
     for page in ec2.get_paginator("describe_instances").paginate():
@@ -79,13 +54,15 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
                     "attachments": len(volume.get("Attachments", [])),
                     "size_gb": volume.get("Size", 8),
                 })
-    except (BotoCoreError, ClientError, Exception):
-        pass
+        coverage.append('ebs')
+    except Exception:
+        warn('ebs')
 
     # Optional/safe read: Storage buckets (S3)
     try:
         s3 = session.client("s3", region_name=region, config=config)
-        for bucket in s3.list_buckets().get("Buckets", []):
+        bucket_pages=s3.get_paginator('list_buckets').paginate() if s3.can_paginate('list_buckets') is True else [s3.list_buckets()]
+        for bucket in (bucket for page in bucket_pages for bucket in page.get('Buckets',[])):
             try:
                 loc = s3.get_bucket_location(Bucket=bucket["Name"]).get("LocationConstraint") or "us-east-1"
                 if loc == "EU":
@@ -93,14 +70,16 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
                 if loc == region:
                     resources.append({"resource_id": bucket["Name"], "service": "s3", "state": "available"})
             except Exception:
-                resources.append({"resource_id": bucket["Name"], "service": "s3", "state": "available"})
-    except (BotoCoreError, ClientError, KeyError, Exception):
-        pass
+                warn("s3")
+        coverage.append("s3")
+    except Exception:
+        warn("s3")
 
     # Optional/safe read: Free-tier database (DynamoDB)
     try:
         ddb = session.client("dynamodb", region_name=region, config=config)
-        for table_name in ddb.list_tables().get("TableNames", []):
+        table_pages=ddb.get_paginator('list_tables').paginate()
+        for table_name in (name for page in table_pages for name in page.get('TableNames',[])):
             try:
                 desc = ddb.describe_table(TableName=table_name)["Table"]
                 resources.append({
@@ -110,11 +89,13 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
                     "billing_mode": desc.get("BillingModeSummary", {}).get("BillingMode", "PAY_PER_REQUEST"),
                 })
             except Exception:
-                resources.append({"resource_id": table_name, "service": "dynamodb", "state": "ACTIVE"})
-    except (BotoCoreError, ClientError, KeyError, Exception):
-        pass
+                warn("dynamodb")
+        coverage.append("dynamodb")
+    except Exception:
+        warn("dynamodb")
 
     data = snapshot("aws", account, region, resources)
+    data.update(coverage=coverage, warnings=warnings)
     if with_metrics:
         from costintel.telemetry import collect_metrics
         data["telemetry"] = collect_metrics(
@@ -132,7 +113,7 @@ def snapshot(mode, account, region, resources):
 
 
 def collect_demo(region):
-    return snapshot("demo", "demo-account", region, [
+    data = snapshot("demo", "demo-account", region, [
         {"resource_id": "demo-ec2-workload", "service": "ec2", "state": "running",
          "instance_type": "t2.micro"},
         {"resource_id": "demo-lambda-workload", "service": "lambda", "runtime": "python3.12",
@@ -142,3 +123,14 @@ def collect_demo(region):
         {"resource_id": "costintel-billing-cache", "service": "dynamodb", "state": "ACTIVE",
          "billing_mode": "PAY_PER_REQUEST"},
     ])
+
+    # Explicitly synthetic demo observations; this path never calls AWS.
+    end=datetime.fromtimestamp(int(datetime.now(timezone.utc).timestamp())//300*300,timezone.utc)
+    series=[]
+    for resource,metric,unit,base in [('demo-lambda-workload','Duration','Milliseconds',8.0),('demo-ec2-workload','CPUUtilization','Percent',12.0)]:
+        points=[{'timestamp':(end-timedelta(minutes=5*(37-i))).isoformat(),'value':round(base+(i%7)*0.19+(i%3)*0.11,3)} for i in range(37)]
+        if metric=='Duration':
+            points[-1]['value']=501.8
+        series.append({'resource_id':resource,'service':'lambda' if metric=='Duration' else 'ec2','metric':metric,'statistic':'Average','unit':unit,'period_seconds':300,'points':points,'latest':points[-1],'expected_points':37,'missing_points':0,'status':'available','scope':'synthetic demo'})
+    data['telemetry']={'window_start':series[0]['points'][0]['timestamp'],'window_end':end.isoformat(),'collected_resources':2,'skipped_resources':0,'api_calls':0,'series':series,'synthetic':True}
+    return data

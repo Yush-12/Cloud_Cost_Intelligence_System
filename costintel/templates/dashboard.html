@@ -17,9 +17,10 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <meta name="csrf-token" content="{{ csrf }}">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CostIntel · Autonomous Cloud Cost Intelligence & FinOps</title>
+  <title>CostIntel · AWS Usage Intelligence</title>
   <script src="{{ url_for('static', filename='theme.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
   <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
@@ -102,7 +103,7 @@
         <div>
           <div class="eyebrow"><span class="short-line"></span> YOUR CLOUD, IN CONTEXT</div>
           <h1>Clarity at every layer<span>.</span></h1>
-          <p>Understand what changed. Investigate the telemetry evidence. Stay in autonomous control.</p>
+          <p>Understand what changed. Investigate the telemetry evidence. Stay in control.</p>
         </div>
         <div class="hero-actions">
           <span class="region-label">{{ view.region }} <span>/ {{ 'AWS Multi-Service' if view.mode == 'aws' else 'Simulated Environment' }}</span></span>
@@ -121,7 +122,7 @@
             <span>Collect metrics to begin your investigation.</span>
           {% endif %}
         </p>
-        <span class="freshness-note">{{ 'Simulated telemetry · zero cloud charges' if view.mode == 'demo' else 'CloudWatch observations · guarded mutation window' }}</span>
+        <span class="freshness-note">{{ 'Synthetic demo observations · no AWS calls' if view.mode == 'demo' else 'CloudWatch observations · guarded mutation window' }}</span>
       </div>
 
       <!-- Stat Grid (4 KPI Cards) -->
@@ -164,13 +165,13 @@
 
         <article class="stat-card">
           <div class="stat-top">
-            <span>Est. Run-Rate Impact</span>
+            <span>Billing reconciliation</span>
             {{ icon('zap') }}
           </div>
-          <strong class="text-value">-${{ "%.2f"|format(view.est_monthly_savings or 0.0) }}<span class="stat-unit">/ mo</span></strong>
+          <strong class="text-value">Not measured</strong>
           <div class="stat-foot">
             <span class="mini-dot mint"></span>
-            Measured compute run-rate reduction
+            No reconciled dollar savings yet
           </div>
         </article>
       </section>
@@ -191,7 +192,7 @@
             <span class="section-index">01 / OBSERVE</span>
             <h2>Small signals. Clear evidence.</h2>
           </div>
-          <span class="pill">Isolation Forest <span class="muted">/ Autonomous Detection</span></span>
+          <span class="pill">Isolation Forest <span class="muted">/ {{ "Synthetic demo" if view.mode=="demo" else "Experimental" }}</span></span>
         </div>
 
         {% if detections %}
@@ -278,7 +279,7 @@
                   <dd id="sample-time">—</dd>
                 </div>
               </dl>
-              <div class="evidence-note">Isolation Forest calculates anomaly trees against durable baseline points. Decisions are non-destructive without explicit guardrail application.</div>
+              <div class="evidence-note">The score is not a probability or a cost estimate. Review workload context before authorizing any action.</div>
               <a class="text-link" href="#actions">Trace the action audit trail {{ icon('arrow') }}</a>
             </aside>
           </div>
@@ -379,7 +380,7 @@
                     </td>
                     <td><span class="pill">{{ r.service|upper }}</span></td>
                     <td><span class="state-dot"></span>{{ r.state|default(r.runtime|default('Active')) }}</td>
-                    <td><span class="muted">{{ r.rate_display|default('Not estimated') }}</span></td>
+                    <td><span class="muted">Not estimated</span></td>
                   </tr>
                 {% endfor %}
               {% elif snap %}
@@ -399,64 +400,10 @@
 
       <!-- Section 03: Optimization Impact (Before vs After) -->
       <section id="impact" class="section">
-        <div class="section-head">
-          <div>
-            <span class="section-index">03 / IMPACT</span>
-            <h2>Optimization impact (Before vs After)</h2>
-          </div>
-          <span class="pill"><span class="mini-dot mint"></span>Est. Run-Rate Impact: -${{ "%.2f"|format(view.est_monthly_savings or 0.0) }}/mo</span>
-        </div>
-
-        <div class="audit-grid">
-          <article class="panel audit-panel">
-            <div class="panel-heading">
-              {{ icon('pulse') }}
-              <h3>Before Optimization Baseline</h3>
-            </div>
-            <div class="audit-entry">
-              <div class="audit-header">
-                <strong>Pre-Remediation Run-Rate</strong>
-                <span class="status-badge warn">Elevated Idle Spend</span>
-              </div>
-              <p>Unthrottled duration anomalies and idle compute instances consuming cloud budget without active application load.</p>
-              <small>Observed baseline: 48h rolling window · Standard Tier</small>
-            </div>
-            <div class="audit-entry">
-              <div class="audit-header">
-                <strong>Runaway Duration Vulnerability</strong>
-                <span class="status-badge warn">Unreserved Concurrency</span>
-              </div>
-              <p>Functions executing with full unreserved quota. Synthetic anomaly spikes directly translate into runaway compute billing.</p>
-              <small>Risk: Concurrent execution multiplier unchecked</small>
-            </div>
-          </article>
-
-          <article class="panel audit-panel">
-            <div class="panel-heading">
-              {{ icon('shield') }}
-              <h3>After Autonomous Optimization</h3>
-            </div>
-            <div class="audit-entry">
-              <div class="audit-header">
-                <strong>Est. Run-Rate Impact</strong>
-                <span class="status-badge good">-${{ "%.2f"|format(view.est_monthly_savings or 0.0) }} / mo</span>
-              </div>
-              <p>Autonomous throttles clamped runaway function concurrency to 0; idle instance shutdown plans formulated with instant rollback.</p>
-              <small>Verified status: Guardrail Active · Zero persistence overhead</small>
-            </div>
-            <div class="audit-entry">
-              <div class="audit-header">
-                <strong>Instant Reversibility</strong>
-                <span class="status-badge good">1-Click Restoration</span>
-              </div>
-              <p>Original pre-state concurrency and instance parameters recorded durably before API dispatch. Baseline can be restored immediately.</p>
-              <small>Rollback SLA: &lt; 2.5 seconds via AWS SDK</small>
-            </div>
-          </article>
-        </div>
+        <div class="section-head"><div><span class="section-index">03 / IMPACT</span><h2>Evidence, before estimates.</h2></div><span class="pill">Billing not connected</span></div>
+        <div class="panel audit-panel"><div class="audit-entry"><h3>Usage observations are not billed savings.</h3><p>Explore collected metrics and recorded action states below. Dollar savings require billing reconciliation and a defensible before/after comparison; neither is implemented yet.</p><small>Review tags alone do not reduce resource usage. Historical action status is not a live state check.</small></div></div>
       </section>
 
-      <!-- Section 04: Action History Audit -->
       <section id="actions" class="section">
         <div class="section-head">
           <div>
@@ -521,7 +468,7 @@
             {% endfor %}
           </article>
         </div>
-        <p class="section-note">Audit status reflects the last verified operation, not a synthetic guess. Review tags flag resources for operator attention without stopping workloads.</p>
+        <p class="section-note">Audit status reflects the last verified operation, not a live resource check. Review tags flag resources for operator attention without stopping workloads.</p>
       </section>
 
       <!-- Section 05: Setup & Verification Guide -->
@@ -543,14 +490,14 @@
             <span>02</span>
             <div>
               <strong>Observe, detect, preview</strong>
-              <p>Continuous 5-minute compute observations and daily S3 Standard telemetry.</p>
+              <p>Collected five-minute compute observations and daily S3 Standard telemetry.</p>
             </div>
           </div>
           <div>
             <span>03</span>
             <div>
-              <strong>Autonomous execution & recovery</strong>
-              <p>Tag-based opt-in, durable intent in SQLite, and verified instant rollback.</p>
+              <strong>Guarded execution & recovery</strong>
+              <p>Tag-based opt-in, durable intent in SQLite, and verified restoration.</p>
             </div>
           </div>
         </div>
@@ -558,7 +505,7 @@
 
       <!-- Footer -->
       <footer>
-        <span>costintel<span class="brand-dot">.</span><small>Autonomous Cloud FinOps Intelligence</small></span>
+        <span>costintel<span class="brand-dot">.</span><small>Cloud usage intelligence</small></span>
         <p>{{ 'Local Workspace' if view.mode == 'aws' else 'Simulated Demo' }} · Ephemeral In-Memory Auth · No Keys Saved</p>
       </footer>
     </main>
@@ -571,22 +518,22 @@
       <button id="close-dialog" class="icon-button" aria-label="Close dialog">×</button>
     </div>
     <h2 id="operation-title">Collect & Preview Pipeline</h2>
-    <p id="operation-message" aria-live="polite">Run autonomous telemetry ingestion, multi-service Isolation Forest anomaly scoring, and preview cost optimization plans.</p>
-    
+    <p id="operation-message" aria-live="polite">Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. This operation does not change AWS resources.</p>
+
     <div style="margin: 18px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
       <div>
         <label for="dialog-stimulate-select">Workload Stimulation</label>
         <select id="dialog-stimulate-select" style="width: 100%;">
           <option value="none">None (Passive Ingestion)</option>
-          <option value="slow" selected>Slow Scenario (500ms Synthetic Spike)</option>
-          <option value="baseline">Baseline Traffic (Normal Invocations)</option>
+
+
         </select>
       </div>
       <div>
         <label for="dialog-mode-select">Action Mode</label>
         <select id="dialog-mode-select" style="width: 100%;">
           <option value="dry_run" selected>Dry Run (Preview Plans Only)</option>
-          <option value="apply">Autonomous Remediation (Apply Plans)</option>
+
         </select>
       </div>
     </div>

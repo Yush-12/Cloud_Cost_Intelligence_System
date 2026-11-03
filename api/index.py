@@ -17,4 +17,4 @@ if not store.latest("local", "demo", "demo-account", "ap-south-1"):
     store.save("local", collect_demo("ap-south-1"))
 
 # Vercel looks for the WSGI application object named 'app'
-app = create_app(store, "local", "demo", "demo-account", "ap-south-1")
+app = create_app(store, "local", "demo", "demo-account", "ap-south-1", deployment="demo")

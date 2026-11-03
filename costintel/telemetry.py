@@ -32,8 +32,8 @@ def collect_metrics(client, resources, now=None, max_resources=10, window_hours=
     for resource in selected:
         service = resource["service"]
         period = 86400 if service == "s3" else 300
-        metric_end = end
-        metric_start = (end - timedelta(days=2)) if service == "s3" else start
+        metric_end = end.replace(hour=0, minute=0, second=0, microsecond=0) if service == "s3" else end
+        metric_start = (metric_end - timedelta(days=2)) if service == "s3" else start
         exp_pts = 2 if service == "s3" else expected_points
 
         dim_name = {

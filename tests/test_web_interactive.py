@@ -1,135 +1,91 @@
 import json
+from unittest.mock import patch
 import pytest
-from costintel.inventory import collect_demo
 from costintel.store import SnapshotStore
 from costintel.web import create_app
-
+from tests.web_helpers import connect, post
 
 @pytest.fixture
-def test_client(tmp_path):
-    store = SnapshotStore(tmp_path / "test.db")
-    data = collect_demo("ap-south-1")
-    store.save("local", data)
-    app = create_app(store, "local", "demo", "demo-account", "ap-south-1")
-    return app.test_client()
+def app(tmp_path):
+    return create_app(SnapshotStore(tmp_path/'test.db'),'local','aws','123456789012','ap-south-1')
 
+def test_no_unauthenticated_fallback(app):
+    client=app.test_client()
+    assert client.get('/').status_code==302
+    for path in ('inventory','actions','detection','profiles','metrics'):
+        assert client.get('/api/'+path).status_code==401
+    assert post(client,'/api/pipeline/run').status_code==401
 
-def test_login_page_renders(test_client):
-    res = test_client.get("/login")
-    assert res.status_code == 200
-    assert b"Connect AWS Workspace" in res.data
-    assert b"RAM-Only Lifecycle" in res.data
+def test_csrf_and_origin(app):
+    client=app.test_client()
+    assert client.post('/api/auth/login',json={'mode':'demo'}).status_code==403
+    token=client.get('/api/session').json['csrf_token']
+    assert client.post('/api/auth/login',json={'mode':'demo'},headers={'X-CSRF-Token':token,'Origin':'https://other.example'}).status_code==403
+    assert client.post('/api/auth/login',json=[],headers={'X-CSRF-Token':token}).status_code==400
 
+def test_login_logout_and_expiry(app):
+    client=app.test_client();connect(client,mode='demo')
+    assert client.get('/').status_code==200
+    assert post(client,'/api/auth/logout').status_code==200
+    assert client.get('/api/inventory').status_code==401
+    connect(client,mode='demo')
+    for value in app.extensions['workspace_sessions'].values(): value['expires']=0
+    assert client.get('/api/inventory').status_code==401
 
-def test_auth_login_and_logout(test_client):
-    login_res = test_client.post("/api/auth/login", json={"mode": "demo"})
-    assert login_res.status_code == 200
-    assert login_res.json["status"] == "ok"
-    assert login_res.json["account_id"] == "demo-account"
+def test_session_isolation(app):
+    a,b=app.test_client(),app.test_client()
+    connect(a,'111122223333');connect(b,'444455556666')
+    assert a.get('/api/inventory').json['account_id']=='111122223333'
+    assert b.get('/api/inventory').json['account_id']=='444455556666'
+    connect(b,mode='demo')
+    assert a.get('/api/inventory').json['mode']=='aws'
+    assert post(b,'/api/profiles/switch',{'profile':'costintel'}).status_code==409
 
-    logout_res = test_client.post("/api/auth/logout")
-    assert logout_res.status_code == 200
-    assert logout_res.json["status"] == "ok"
+def test_preview_uses_connected_sdk(app):
+    client=app.test_client();sdk=connect(client)
+    report={'inventory':{'resources_count':0,'services':[]},'telemetry':{'series_collected':0,'api_calls':0},'detection':{'total_analyzed':0,'outliers_count':0,'outliers':[],'insufficient_variation_count':0,'insufficient_data_count':0},'execution':{'mode':'dry_run','results':[]},'plans_generated':[],'mode':'aws','account':'123456789012','region':'ap-south-1','snapshot_id':1,'timestamp':'now'}
+    with patch('costintel.pipeline.run_pipeline',return_value=report) as run:
+        assert post(client,'/api/pipeline/run').status_code==200
+        assert run.call_args.kwargs['session'] is sdk
+        assert run.call_args.kwargs['apply'] is False
+    for payload,status in [({'apply':True},409),({'apply':'false'},400),({'profile':'other'},400),({'window_hours':49},400),({'stimulate':'slow'},409)]:
+        assert post(client,'/api/pipeline/run',payload).status_code==status
 
+def test_unsafe_operations_disabled(app):
+    c=app.test_client();connect(c,mode='demo')
+    for path in ('lab/provision','lab/teardown','workload/stimulate'):
+        assert post(c,'/api/'+path).status_code==409
+    assert post(c,'/api/workload/restore').status_code==400
+    assert post(c,'/api/workload/restore',{'action_id':'x'}).status_code==403
 
-def test_api_lab_provision_and_teardown_demo(test_client):
-    prov_res = test_client.post("/api/lab/provision")
-    assert prov_res.status_code == 200
-    assert prov_res.json["status"] == "provisioned"
-    assert len(prov_res.json["resources"]) == 4
-
-    tear_res = test_client.post("/api/lab/teardown")
-    assert tear_res.status_code == 200
-    assert tear_res.json["status"] == "completed"
-
-
-def test_api_profiles_endpoint(test_client):
-    res = test_client.get("/api/profiles")
-    assert res.status_code == 200
-    data = res.json
-    assert "active" in data
-    assert "profiles" in data
-    assert data["active"]["mode"] == "demo"
-    assert any(p["name"] == "demo" for p in data["profiles"])
-
-
-def test_api_profiles_switch_to_demo(test_client):
-    res = test_client.post("/api/profiles/switch", json={"mode": "demo", "profile": "demo"})
-    assert res.status_code == 200
-    data = res.json
-    assert data["status"] == "ok"
-    assert data["active"]["mode"] == "demo"
-    assert data["active"]["account_id"] == "demo-account"
-
-
-def test_api_pipeline_run_demo_mode(test_client):
-    res = test_client.post("/api/pipeline/run", json={"apply": False, "stimulate": "slow"})
-    assert res.status_code == 200
-    data = res.json
-    assert data["status"] == "success"
-    assert "report" in data
-    assert "summary" in data
-    assert data["stimulation"]["scenario"] == "slow"
-
-
-def test_api_workload_stimulate_and_restore_demo(test_client):
-    res_stim = test_client.post("/api/workload/stimulate", json={"scenario": "slow", "count": 3})
-    assert res_stim.status_code == 200
-    assert res_stim.json["status"] == "ok"
-    assert res_stim.json["result"]["scenario"] == "slow"
-
-    res_rest = test_client.post("/api/workload/restore")
-    assert res_rest.status_code == 200
-    assert res_rest.json["status"] == "ok"
-    assert "baseline restored" in res_rest.json["message"]
-
-
-def test_session_isolation(tmp_path):
-    store = SnapshotStore(tmp_path / "test_iso.db")
-    app = create_app(store, "local", "aws", "111122223333", "ap-south-1")
-    client_a = app.test_client()
-    client_b = app.test_client()
-
-    inv_a = client_a.get("/api/inventory").json
-    assert inv_a["account_id"] == "111122223333"
-    assert inv_a["mode"] == "aws"
-
-    login_b = client_b.post("/api/auth/login", json={"mode": "demo"}).json
-    assert login_b["status"] == "ok"
-    assert login_b["account_id"] == "demo-account"
-
-    inv_b = client_b.get("/api/inventory").json
-    assert inv_b["account_id"] == "demo-account"
-    assert inv_b["mode"] == "demo"
-
-    # Client A must still see original isolated AWS account
-    inv_a2 = client_a.get("/api/inventory").json
-    assert inv_a2["account_id"] == "111122223333"
-    assert inv_a2["mode"] == "aws"
-
-
-def test_account_scoped_restoration(tmp_path):
-    store = SnapshotStore(tmp_path / "test_restore.db")
+def test_restore_scope_and_failure_preserves_audit(tmp_path):
+    store=SnapshotStore(tmp_path/'restore.db')
     with store.connect() as db:
-        db.execute("CREATE TABLE containment_actions (id TEXT PRIMARY KEY, plan TEXT, status TEXT, created_at TEXT)")
-        db.execute(
-            "INSERT INTO containment_actions VALUES (?, ?, ?, ?)",
-            ("act-aws", json.dumps({"account": "695313591289", "resource": "arn:aws:lambda:ap-south-1:695313591289:function:lab"}), "contained", "2026-11-01T00:00:00Z")
-        )
-        db.execute(
-            "INSERT INTO containment_actions VALUES (?, ?, ?, ?)",
-            ("act-demo", json.dumps({"account": "demo-account", "resource": "demo-lambda-workload"}), "contained", "2026-11-01T00:00:00Z")
-        )
-
-    app = create_app(store, "local", "demo", "demo-account", "ap-south-1")
-    client = app.test_client()
-
-    res = client.post("/api/workload/restore")
-    assert res.status_code == 200
-
+        db.execute('CREATE TABLE containment_actions (id TEXT PRIMARY KEY,plan TEXT,status TEXT,created_at TEXT)')
+        for key,account,region in [('own','123456789012','ap-south-1'),('other','999999999999','ap-south-1'),('region','123456789012','us-east-1')]:
+            db.execute('INSERT INTO containment_actions VALUES (?,?,?,?)',(key,json.dumps({'account':account,'region':region}),'contained','2026-11-01T00:00:00Z'))
+    c=create_app(store,'local','aws','123456789012','ap-south-1').test_client();connect(c)
+    with patch('costintel.containment.client_for',return_value=object()),patch('costintel.containment.restore',side_effect=RuntimeError('offline')) as restore:
+        for key in ('other','region'):
+            assert post(c,'/api/workload/restore',{'action_id':key}).status_code==403
+        restore.assert_not_called()
+        assert post(c,'/api/workload/restore',{'action_id':'own'}).status_code==500
     with store.connect() as db:
-        demo_status = db.execute("SELECT status FROM containment_actions WHERE id='act-demo'").fetchone()[0]
-        aws_status = db.execute("SELECT status FROM containment_actions WHERE id='act-aws'").fetchone()[0]
+        assert all(row[0]=='contained' for row in db.execute('SELECT status FROM containment_actions'))
 
-    assert demo_status == "restored"
-    assert aws_status == "contained"
+def test_public_deployment_rejects_aws(tmp_path):
+    c=create_app(SnapshotStore(tmp_path/'public.db'),'local','demo','demo-account','ap-south-1',deployment='demo').test_client()
+    with patch('costintel.web.boto3.Session') as aws:
+        assert post(c,'/api/auth/login',{'profile':'costintel'}).status_code==403
+        aws.assert_not_called()
+    connect(c,mode='demo')
+    assert c.get('/').status_code==200
+    assert b'data-preset="costintel"' not in c.get('/login').data
+
+
+def test_login_page_contains_current_controls(app):
+    page=app.test_client().get('/login')
+    assert page.status_code==200
+    assert b'Explore the offline demo' in page.data
+    assert b'Your AWS CLI profile' in page.data
+    assert b'csrf-token' in page.data

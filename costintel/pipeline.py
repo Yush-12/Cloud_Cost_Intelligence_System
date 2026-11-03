@@ -67,14 +67,14 @@ def run_pipeline(
 
     # Step 3: Policy-Driven Plan Generation
     plans = []
-    if action_type in ('all', 'review'):
+    if mode == 'aws' and action_type in ('all', 'review'):
         rev = review_plan(store, account, region)
         if rev:
             plans.append(rev)
-    if action_type in ('all', 'stop-ec2'):
+    if mode == 'aws' and action_type in ('all', 'stop-ec2'):
         for p in idle_ec2_plan(store, account, region, threshold_cpu=threshold_cpu):
             plans.append(p)
-    if action_type in ('all', 'tag-volume'):
+    if mode == 'aws' and action_type in ('all', 'tag-volume'):
         for p in unused_volume_plan(store, account, region):
             plans.append(p)
 

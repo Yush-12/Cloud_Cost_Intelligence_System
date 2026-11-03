@@ -1,3 +1,4 @@
+from tests.web_helpers import connect
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -26,6 +27,7 @@ def test_persistence_and_scope(tmp_path):
 def test_viewer_distinguishes_uncollected_empty_and_stale(tmp_path):
     store = SnapshotStore(tmp_path / "inventory.db")
     client = create_app(store, "local", "aws", "123456789012", "ap-south-1").test_client()
+    connect(client)
     assert client.get("/api/inventory").json["status"] == "not_collected"
     data = snapshot("aws", "123456789012", "ap-south-1", [])
     data["collected_at"] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
@@ -39,8 +41,8 @@ def test_viewer_distinguishes_uncollected_empty_and_stale(tmp_path):
     assert "est_monthly_savings" in result
     page = client.get("/").data
     assert b"Collection succeeded" in page
-    assert b"Optimization impact (Before vs After)" in page
-    assert b"Est. Run-Rate Impact" in page
+    assert b"Evidence, before estimates." in page
+    assert b"Billing not connected" in page
     actions_res = client.get("/api/actions").json
     assert "reviews" in actions_res
     assert "containments" in actions_res
@@ -114,6 +116,8 @@ def test_html_escapes_resource_names(tmp_path):
     data["resources"][0]["resource_id"] = "<script>alert(1)</script>"
     store.save("local", data)
     client = create_app(store, "local", "demo", "demo-account", "ap-south-1").test_client()
+    connect(client, mode='demo')
+    store.save('local', data)
     html = client.get("/").data
     assert b"<script>alert(1)</script>" not in html
     assert b"&lt;script&gt;" in html

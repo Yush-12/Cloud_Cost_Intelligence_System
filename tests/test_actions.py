@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
 import pytest
@@ -69,7 +70,7 @@ def test_idle_ec2_plan_generation(tmp_path):
         'telemetry': {'series': [{
             'resource_id': inst_id, 'service': 'ec2', 'metric': 'CPUUtilization',
             'statistic': 'Average', 'unit': 'Percent', 'period_seconds': 300,
-            'points': [{'timestamp': f'2026-11-02T10:{m:02d}:00+00:00', 'value': 0.8} for m in range(0, 30, 5)]
+            'points': [{'timestamp': (datetime.now(timezone.utc).replace(second=0,microsecond=0)-timedelta(minutes=5*m)).isoformat(), 'value':0.8} for m in range(12,0,-1)]
         }]}
     }
     store.save('local', snap)
@@ -79,7 +80,7 @@ def test_idle_ec2_plan_generation(tmp_path):
     assert plans[0]['resource'] == inst_id
     assert plans[0]['target_state'] == 'stopped'
     assert plans[0]['evidence']['average'] == pytest.approx(0.8)
-    assert plans[0]['est_monthly_savings_usd'] == 8.47
+    assert plans[0]['est_monthly_savings_usd'] is None
 
     # When CPU is high, no idle plan generated
     snap_busy = {
@@ -88,7 +89,7 @@ def test_idle_ec2_plan_generation(tmp_path):
         'telemetry': {'series': [{
             'resource_id': inst_id, 'service': 'ec2', 'metric': 'CPUUtilization',
             'statistic': 'Average', 'unit': 'Percent', 'period_seconds': 300,
-            'points': [{'timestamp': f'2026-11-02T11:{m:02d}:00+00:00', 'value': 45.0} for m in range(0, 30, 5)]
+            'points': [{'timestamp':p['timestamp'],'value':45.0} for p in snap['telemetry']['series'][0]['points']]
         }]}
     }
     store.save('local', snap_busy)
@@ -117,6 +118,20 @@ def test_apply_stop_and_start_instance(tmp_path):
         'region': region, 'resource': inst_id, 'target_state': 'stopped', 'reversible': True
     }
 
+    from costintel.actions import idle_ec2_plan
+    now=datetime.now(timezone.utc).replace(second=0,microsecond=0)
+    store.save('local',{'mode':'aws','account_id':account,'region':region,
+        'resources':[{'resource_id':inst_id,'service':'ec2','state':'running'}],
+        'telemetry':{'series':[{'resource_id':inst_id,'metric':'CPUUtilization','statistic':'Average','unit':'Percent','period_seconds':300,
+            'points':[{'timestamp':(now-timedelta(minutes=5*m)).isoformat(),'value':0.5} for m in range(12,0,-1)]}]}})
+    plan=idle_ec2_plan(store,account,region)[0]
+    instance=ec2.describe_instances.return_value['Reservations'][0]['Instances'][0]
+    instance['Tags'].append({'Key':'CostIntelIdleStop','Value':'true'})
+    def wait_for(name):
+        waiter=Mock()
+        waiter.wait.side_effect=lambda **kw: instance['State'].update(Name='stopped' if name=='instance_stopped' else 'running')
+        return waiter
+    ec2.get_waiter.side_effect=wait_for
     # Stop instance
     res = apply_stop_instance(store, session, plan)
     assert res['status'] == 'applied'
@@ -128,7 +143,7 @@ def test_apply_stop_and_start_instance(tmp_path):
     assert ec2.stop_instances.call_count == 1
 
     # Restart / rollback
-    restore_res = apply_start_instance(store, session, 'plan-stop-1')
+    restore_res = apply_start_instance(store, session, plan['id'])
     assert restore_res['status'] == 'restored'
     ec2.start_instances.assert_called_once_with(InstanceIds=[inst_id])
 
@@ -171,15 +186,41 @@ def test_unused_volume_tagging_and_plans(tmp_path):
     assert len(plans) == 1
     assert plans[0]['action'] == 'tag_unused_volume'
     assert plans[0]['resource'] == vol_id
-    assert plans[0]['est_monthly_savings_usd'] == 0.64
+    assert plans[0]['est_monthly_savings_usd'] is None
 
     # Test tagging
     session, sts, ec2 = Mock(), Mock(), Mock()
     session.client.side_effect = lambda name, **kw: sts if name == 'sts' else ec2
     sts.get_caller_identity.return_value = {'Account': account, 'Arn': f'arn:aws:iam::{account}:user/test'}
     ec2.describe_volumes.return_value = {
-        'Volumes': [{'VolumeId': vol_id, 'Tags': [{'Key': 'CostIntelLab', 'Value': 'true'}, {'Key': 'AutoOptimize', 'Value': 'true'}]}]
+        'Volumes': [{'VolumeId': vol_id, 'State':'available', 'Attachments':[], 'Tags': [{'Key': 'CostIntelLab', 'Value': 'true'}, {'Key': 'AutoOptimize', 'Value': 'true'}]}]
     }
+    ec2.create_tags.side_effect=lambda **kw: ec2.describe_volumes.return_value['Volumes'][0]['Tags'].extend(kw['Tags'])
     res = apply_tag_volume(store, session, plans[0])
     assert res['status'] == 'applied'
     ec2.create_tags.assert_called_once()
+
+@pytest.mark.parametrize('case',['stale','gap','future','short','wrong_unit','nan'])
+def test_idle_shutdown_rejects_unreliable_evidence(tmp_path,case):
+    from costintel.actions import idle_ec2_plan
+    store=SnapshotStore(tmp_path/'idle.db')
+    now=datetime.now(timezone.utc).replace(second=0,microsecond=0)
+    points=[{'timestamp':(now-timedelta(minutes=5*m)).isoformat(),'value':0.5} for m in range(12,0,-1)]
+    unit='Percent'
+    if case=='stale':
+        for p in points:p['timestamp']=(datetime.fromisoformat(p['timestamp'])-timedelta(days=1)).isoformat()
+    elif case=='future':
+        for p in points:p['timestamp']=(datetime.fromisoformat(p['timestamp'])+timedelta(days=1)).isoformat()
+    elif case=='gap':points[5]['timestamp']=(now-timedelta(minutes=200)).isoformat()
+    elif case=='short':points=points[:3]
+    elif case=='wrong_unit':unit='Count'
+    elif case=='nan':points[-1]['value']=float('nan')
+    data={'mode':'aws','account_id':'123456789012','region':'ap-south-1','resources':[{'service':'ec2','resource_id':'i-test','state':'running'}],
+          'telemetry':{'series':[{'resource_id':'i-test','metric':'CPUUtilization','unit':unit,'statistic':'Average','period_seconds':300,'points':points}]}}
+    # SQLite rejects NaN as a null metric, which is also fail-closed.
+    if case=='nan':
+        import sqlite3
+        with pytest.raises(sqlite3.IntegrityError):store.save('local',data)
+    else:
+        store.save('local',data)
+        assert idle_ec2_plan(store,'123456789012','ap-south-1',now=now)==[]

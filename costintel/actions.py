@@ -2,6 +2,7 @@
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import math
 import json
 
 import boto3
@@ -31,7 +32,7 @@ def review_plan(store, account, region, now=None):
         key = _plan_id(account, region, resource, evidence)
         return {'id': key, 'resource': resource, 'account': account, 'region': region,
                 'evidence': evidence, 'tag': {TAG: 'review-' + key[:24]}, 'action': 'tag_for_review',
-                'est_monthly_savings_usd': 5.20}
+                'est_monthly_savings_usd': None}
     return None
 
 
@@ -81,13 +82,20 @@ def idle_ec2_plan(store, account, region, threshold_cpu=2.0, now=None):
             continue
         instance_id = res['resource_id']
         points = store.history('local', 'aws', account, region, instance_id, 'CPUUtilization')
-        if not points or len(points) < 3:
+        points = points[-12:]
+        if len(points) < 12:
             continue
-        if any(p['value'] < 0 or p['value'] > 100 for p in points):
+        times = [datetime.fromisoformat(p['timestamp']) for p in points]
+        if not 0 <= (now-times[-1]).total_seconds() <= 900:
+            continue
+        if any((b-a).total_seconds() != 300 for a,b in zip(times,times[1:])):
+            continue
+        if any(p.get('statistic') != 'Average' or p.get('period_seconds') != 300 or
+               p.get('unit') != 'Percent' or not math.isfinite(p['value']) or not 0 <= p['value'] <= 100 for p in points):
             continue
         avg_cpu = round(sum(p['value'] for p in points) / len(points), 4)
         if avg_cpu <= threshold_cpu:
-            key = _plan_id(account, region, instance_id, 'stop_idle_instance', avg_cpu)
+            key = _plan_id(account, region, instance_id, 'stop_idle_instance', avg_cpu, points[-1]['timestamp'])
             plans.append({
                 'id': key,
                 'action': 'stop_idle_instance',
@@ -104,7 +112,7 @@ def idle_ec2_plan(store, account, region, threshold_cpu=2.0, now=None):
                 },
                 'target_state': 'stopped',
                 'reversible': True,
-                'est_monthly_savings_usd': 8.47,
+                'est_monthly_savings_usd': None,
             })
     return plans
 
@@ -125,6 +133,15 @@ def apply_stop_instance(store, session, plan):
     tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
     if tags.get('CostIntelLab') != 'true' or tags.get('AutoOptimize') != 'true':
         raise ValueError('Instance must explicitly opt in with CostIntelLab=true and AutoOptimize=true')
+    with store.connect() as db:
+        if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='optimization_actions'").fetchone():
+            existing = db.execute('SELECT status FROM optimization_actions WHERE id=?',(plan['id'],)).fetchone()
+            if existing:
+                return {'status':existing[0], 'id':plan['id'], 'replayed':False}
+    if tags.get('CostIntelIdleStop') != 'true':
+        raise ValueError('Explicit CostIntelIdleStop=true opt in is required')
+    if not any(p['id']==plan['id'] for p in idle_ec2_plan(store,plan['account'],plan['region'])):
+        raise ValueError('Idle evidence is stale or changed; collect again')
     current_state = instance.get('State', {}).get('Name')
     if current_state != 'running':
         raise ValueError(f'Instance is in state {current_state}, must be running to stop')
@@ -142,6 +159,9 @@ def apply_stop_instance(store, session, plan):
         stopping = stop_resp.get('StoppingInstances', [])
         if not stopping:
             raise ValueError('Stop instances command returned no state change')
+        ec2.get_waiter('instance_stopped').wait(InstanceIds=[plan['resource']], WaiterConfig={'Delay':5,'MaxAttempts':24})
+        if ec2.describe_instances(InstanceIds=[plan['resource']])['Reservations'][0]['Instances'][0]['State']['Name'] != 'stopped':
+            raise ValueError('Stop state not verified')
     except Exception:
         with store.connect() as db:
             db.execute('UPDATE optimization_actions SET status=? WHERE id=?', ('uncertain', plan['id']))
@@ -169,6 +189,15 @@ def apply_start_instance(store, session, action_id):
     tags = {t['Key']: t['Value'] for t in instance.get('Tags', [])}
     if tags.get('CostIntelLab') != 'true' or tags.get('AutoOptimize') != 'true':
         raise ValueError('Instance must explicitly opt in with CostIntelLab=true and AutoOptimize=true')
+    if row[1] == 'restored':
+        return {'status':'restored','id':action_id}
+    current=instance.get('State',{}).get('Name')
+    if current=='running' and row[1] in ('restoring','restore_uncertain'):
+        with store.connect() as db:
+            db.execute('UPDATE optimization_actions SET status=? WHERE id=?',('restored',action_id))
+        return {'status':'restored','id':action_id}
+    if current != 'stopped':
+        raise ValueError('Resource state changed; refusing to overwrite')
     with store.connect() as db:
         db.execute('UPDATE optimization_actions SET status=? WHERE id=?', ('restoring', action_id))
     try:
@@ -176,6 +205,9 @@ def apply_start_instance(store, session, action_id):
         starting = start_resp.get('StartingInstances', [])
         if not starting:
             raise ValueError('Start instances command returned no state change')
+        ec2.get_waiter('instance_running').wait(InstanceIds=[plan['resource']], WaiterConfig={'Delay':5,'MaxAttempts':24})
+        if ec2.describe_instances(InstanceIds=[plan['resource']])['Reservations'][0]['Instances'][0]['State']['Name'] != 'running':
+            raise ValueError('Start state not verified')
     except Exception:
         with store.connect() as db:
             db.execute('UPDATE optimization_actions SET status=? WHERE id=?', ('restore_uncertain', action_id))
@@ -202,7 +234,7 @@ def unused_volume_plan(store, account, region, now=None):
                 'region': region,
                 'reason': 'Unattached EBS volume (state: available) incurring idle storage charges',
                 'tag': {TAG: 'review-volume-' + key[:16]},
-                'est_monthly_savings_usd': 0.64,
+                'est_monthly_savings_usd': None,
             })
     return plans
 
@@ -220,6 +252,8 @@ def apply_tag_volume(store, session, plan):
     if not volumes:
         raise ValueError('Volume not found')
     volume = volumes[0]
+    if volume.get('State') != 'available' or volume.get('Attachments'):
+        raise ValueError('Volume is no longer unattached')
     tags = {t['Key']: t['Value'] for t in volume.get('Tags', [])}
     if tags.get('CostIntelLab') != 'true' or tags.get('AutoOptimize') != 'true':
         raise ValueError('Volume must explicitly opt in with CostIntelLab=true and AutoOptimize=true')
@@ -237,6 +271,10 @@ def apply_tag_volume(store, session, plan):
     try:
         tag_list = [{'Key': k, 'Value': v} for k, v in plan['tag'].items()]
         ec2.create_tags(Resources=[plan['resource']], Tags=tag_list)
+        observed=ec2.describe_volumes(VolumeIds=[plan['resource']])['Volumes'][0]
+        actual={t['Key']:t['Value'] for t in observed.get('Tags',[])}
+        if any(actual.get(k)!=v for k,v in plan['tag'].items()):
+            raise ValueError('Tag not verified')
     except Exception:
         with store.connect() as db:
             db.execute('UPDATE optimization_actions SET status=? WHERE id=?', ('uncertain', plan['id']))

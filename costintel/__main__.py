@@ -18,6 +18,8 @@ def main(argv=None):
     parser.add_argument("--expected-account", help="Abort if STS returns a different account")
     parser.add_argument("--account", help="Account to view (required for serve/pipeline in AWS mode)")
     parser.add_argument("--database", default=".local-data/inventory.sqlite3")
+    parser.add_argument("--public-demo", action="store_true")
+    parser.add_argument("--host", choices=["127.0.0.1","0.0.0.0"], default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5001)
     parser.add_argument("--with-metrics", action="store_true", help="Read the last hour of CloudWatch metrics")
     parser.add_argument("--max-resources", type=int, default=10, help="Telemetry resource limit (1-100, default 10)")
@@ -34,12 +36,14 @@ def main(argv=None):
         parser.error("--with-metrics requires collect or pipeline in --mode aws")
     if args.command in ("serve", "pipeline") and args.mode == "aws" and not args.account:
         parser.error(f"{args.command} --mode aws requires --account")
+    if args.host == '0.0.0.0' and not args.public_demo:
+        parser.error('Network binding requires --public-demo (AWS login disabled)')
     store = SnapshotStore(args.database)
     if args.command == "serve":
         from costintel.web import create_app
         app = create_app(store, "local", args.mode,
-                         args.account if args.mode == "aws" else "demo-account", args.region)
-        app.run(host="127.0.0.1", port=args.port, debug=False)
+                         args.account if args.mode == "aws" else "demo-account", args.region, deployment="demo" if args.public_demo else "local")
+        app.run(host=args.host, port=args.port, debug=False)
         return 0
     if args.command == "pipeline":
         from costintel.pipeline import run_pipeline, format_summary
