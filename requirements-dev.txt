@@ -1,5 +1,3 @@
-# Production dependencies
+# Development and test dependencies
 -r requirements.txt
-
-# Test runner
-pytest>=8.0.0
+pytest==8.3.5

@@ -12,7 +12,7 @@ from costintel.store import SnapshotStore
 
 def client_for(session, account):
     config = Config(connect_timeout=5, read_timeout=10, retries={'total_max_attempts': 1})
-    identity = session.client('sts', region_name='ap-south-1', config=config).get_caller_identity()
+    identity = session.client('sts', region_name='ap-south-1', endpoint_url='https://sts.ap-south-1.amazonaws.com', config=config).get_caller_identity()
     if identity['Account'] != account or identity['Arn'].endswith(':root'):
         raise ValueError('Wrong account or root identity')
     return session.client('lambda', region_name='ap-south-1', config=config)
@@ -32,7 +32,7 @@ def prepare(client, account):
     return {'account': account, 'resource': arn, 'previous': previous, 'target': 0,
             'opted_in': function.get('Tags', {}).get('CostIntelContainment') == 'true',
             'effect': 'Blocks new executions; not a measured savings estimate',
-            'est_monthly_savings_usd': 5.20}
+            'est_monthly_savings_usd': None}
 
 
 def initialize(store):
@@ -46,14 +46,20 @@ def status(store, action_id, value):
         db.execute('UPDATE containment_actions SET status=? WHERE id=?', (value, action_id))
 
 
-def apply(store, client, account):
+def apply(store, client, account, *, action_id=None, evidence=None):
     initialize(store)
     plan = prepare(client, account)
     if not plan['opted_in'] or plan['previous'] == 0:
         raise ValueError('Explicit containment opt-in required; lab must not already be disabled')
-    action_id = str(uuid.uuid4())
+    action_id = action_id or str(uuid.uuid4())
+    if evidence is not None:
+        plan['evidence'] = evidence
+    plan['region'] = 'ap-south-1'
     with store.connect() as db:
         db.execute('BEGIN IMMEDIATE')
+        existing = db.execute('SELECT status FROM containment_actions WHERE id=?',(action_id,)).fetchone()
+        if existing:
+            return {'id':action_id,'status':existing[0],'replayed':False}
         active = db.execute("SELECT id FROM containment_actions WHERE status != 'restored'").fetchall()
         # Single local executor. Never overlap uncertain actions, even across accounts.
         if active:

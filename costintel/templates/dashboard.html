@@ -7,7 +7,7 @@
 {% elif name == 'arrow' %}<path d="M5 12h14m-6-6 6 6-6 6"/>
 {% elif name == 'arrow-left' %}<path d="M19 12H5m6-6-6 6 6 6"/>
 {% elif name == 'menu' %}<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
-{% elif name == 'refresh' %}<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.2 8a8 8 0 0 1 13-3L20 8M4 16l1.8 3a8 8 0 0 0 13-3"/>
+{% elif name == 'refresh' %}<path d="M20 11a8 8 0 1 0-2.4 6"/><path d="M20 4v7h-7"/>
 {% elif name == 'sun' %}<circle cx="12" cy="12" r="4"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/>
 {% elif name == 'zap' %}<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
 {% else %}<circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3v1"/>
@@ -428,6 +428,10 @@
                 </div>
                 <p>Original: {{ a.previous if a.previous is not none else 'Unreserved' }} → containment: 0{% if a.status == 'restored' %} → original restored{% endif %}</p>
                 <small><time datetime="{{ a.created_at }}">{{ a.created_at }}</time></small>
+                {% if a.evidence %}
+                <p>Duration baseline: {{ a.evidence.baseline_median_ms|round(2) }} ms → observed: {{ a.evidence.sample_ms|round(2) }} ms ({{ a.evidence.baseline_points }} baseline observations).</p>
+                <small>Detection score: {{ a.evidence.score }} · Sample: {{ a.evidence.sample_timestamp }}. This is usage evidence, not measured dollar savings.</small>
+                {% endif %}
                 <details>
                   <summary>View evidence identifiers</summary>
                   <code>{{ a.id }}<br>{{ a.resource }}</code>
@@ -476,7 +480,7 @@
         <div>
           <span class="eyebrow">BUILT TO BE INSPECTED</span>
           <h2>Your infrastructure.<br>Your evidence.</h2>
-          <p>Run locally with temporary IAM credentials or local AWS profiles. Inspect plans before execution and verify state changes in your live AWS console.</p>
+              <p>Run locally with temporary AWS credentials. Inspect plans before execution and verify state changes in your live AWS console.</p>
         </div>
         <div class="setup-steps">
           <div>
@@ -518,7 +522,7 @@
       <button id="close-dialog" class="icon-button" aria-label="Close dialog">×</button>
     </div>
     <h2 id="operation-title">Collect & Preview Pipeline</h2>
-    <p id="operation-message" aria-live="polite">Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. This operation does not change AWS resources.</p>
+    <p id="operation-message" aria-live="polite">Collect observations for this workspace, evaluate metric outliers, and preview eligible plans. Collection does not change AWS resources. Eligible plans can be reviewed and explicitly executed below.</p>
 
     <div style="margin: 18px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
       <div>
@@ -539,6 +543,7 @@
     </div>
 
     <div id="operation-results"></div>
+    <div id="reviewed-plans" aria-live="polite"></div>
 
     <div class="dialog-actions">
       <button id="execute-operation-btn" class="button primary">Run Pipeline Cycle</button>

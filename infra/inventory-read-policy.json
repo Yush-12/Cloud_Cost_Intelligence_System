@@ -2,11 +2,24 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ReadRegionalInventory",
+      "Sid": "ReadMumbaiInventoryAndMetrics",
       "Effect": "Allow",
-      "Action": ["ec2:DescribeInstances", "lambda:ListFunctions", "cloudwatch:GetMetricStatistics"],
+      "Action": [
+        "ec2:DescribeInstances",
+        "ec2:DescribeVolumes",
+        "lambda:ListFunctions",
+        "cloudwatch:GetMetricStatistics",
+        "dynamodb:ListTables",
+        "dynamodb:DescribeTable"
+      ],
       "Resource": "*",
       "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-south-1"}}
+    },
+    {
+      "Sid": "ReadBucketNamesAndLocations",
+      "Effect": "Allow",
+      "Action": ["s3:ListAllMyBuckets", "s3:GetBucketLocation"],
+      "Resource": "*"
     }
   ]
 }

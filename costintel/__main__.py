@@ -25,7 +25,7 @@ def main(argv=None):
     parser.add_argument("--max-resources", type=int, default=10, help="Telemetry resource limit (1-100, default 10)")
     parser.add_argument("--window-hours", type=int, default=1, help="CloudWatch lookback in hours (1-48)")
     parser.add_argument("--apply", action="store_true", help="Execute optimizations during pipeline (dry-run by default)")
-    parser.add_argument("--action-type", choices=["all", "review", "stop-ec2", "tag-volume"], default="all")
+    parser.add_argument("--action-type", choices=["all", "review", "stop-ec2", "tag-volume", "contain-lambda"], default="all")
     parser.add_argument("--threshold-cpu", type=float, default=2.0)
     args = parser.parse_args(argv)
     if not 1 <= args.max_resources <= 100:

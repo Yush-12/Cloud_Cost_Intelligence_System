@@ -38,7 +38,7 @@ def review_plan(store, account, region, now=None):
 
 def apply_review(store, session, plan):
     config = Config(connect_timeout=5, read_timeout=10, retries={'total_max_attempts': 1})
-    identity = session.client('sts', region_name=plan['region'], config=config).get_caller_identity()
+    identity = session.client('sts', region_name=plan['region'], endpoint_url=f"https://sts.{plan['region']}.amazonaws.com", config=config).get_caller_identity()
     if identity['Account'] != plan['account'] or identity['Arn'].endswith(':root'):
         raise ValueError('Wrong account or root identity')
     expected = f"arn:aws:lambda:{plan['region']}:{plan['account']}:function:costintel-lab-workload"
@@ -119,7 +119,7 @@ def idle_ec2_plan(store, account, region, threshold_cpu=2.0, now=None):
 
 def apply_stop_instance(store, session, plan):
     config = Config(connect_timeout=5, read_timeout=10, retries={'total_max_attempts': 1})
-    identity = session.client('sts', region_name=plan['region'], config=config).get_caller_identity()
+    identity = session.client('sts', region_name=plan['region'], endpoint_url=f"https://sts.{plan['region']}.amazonaws.com", config=config).get_caller_identity()
     if identity['Account'] != plan['account'] or identity['Arn'].endswith(':root'):
         raise ValueError('Wrong account or root identity')
     if plan['region'] != 'ap-south-1':
@@ -180,7 +180,7 @@ def apply_start_instance(store, session, action_id):
     plan = json.loads(row[0])
     if plan.get('action') != 'stop_idle_instance':
         raise ValueError('Only stopped instances can be restarted')
-    identity = session.client('sts', region_name=plan['region'], config=config).get_caller_identity()
+    identity = session.client('sts', region_name=plan['region'], endpoint_url=f"https://sts.{plan['region']}.amazonaws.com", config=config).get_caller_identity()
     if identity['Account'] != plan['account'] or identity['Arn'].endswith(':root'):
         raise ValueError('Wrong account or root identity')
     ec2 = session.client('ec2', region_name=plan['region'], config=config)
@@ -241,7 +241,7 @@ def unused_volume_plan(store, account, region, now=None):
 
 def apply_tag_volume(store, session, plan):
     config = Config(connect_timeout=5, read_timeout=10, retries={'total_max_attempts': 1})
-    identity = session.client('sts', region_name=plan['region'], config=config).get_caller_identity()
+    identity = session.client('sts', region_name=plan['region'], endpoint_url=f"https://sts.{plan['region']}.amazonaws.com", config=config).get_caller_identity()
     if identity['Account'] != plan['account'] or identity['Arn'].endswith(':root'):
         raise ValueError('Wrong account or root identity')
     if plan['region'] != 'ap-south-1':
@@ -298,6 +298,9 @@ def generate_optimization_plans(store, account, region, now=None):
 
 def apply_optimization_plan(store, session, plan):
     action = plan.get('action')
+    if action == 'contain_lambda':
+        from costintel.policies import apply_detected_containment
+        return apply_detected_containment(store, session, plan)
     if action == 'tag_for_review':
         return apply_review(store, session, plan)
     elif action == 'stop_idle_instance':

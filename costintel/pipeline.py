@@ -78,6 +78,12 @@ def run_pipeline(
         for p in unused_volume_plan(store, account, region):
             plans.append(p)
 
+    if mode == 'aws' and action_type in ('all', 'contain-lambda'):
+        from costintel.policies import containment_plan
+        containment = containment_plan(store, account, region)
+        if containment:
+            plans.append(containment)
+
     # Step 4: Guarded Execution or Dry-Run
     results = []
     if apply:
@@ -173,7 +179,7 @@ def main(argv=None):
     parser.add_argument('--max-resources', type=int, default=10)
     parser.add_argument('--window-hours', type=int, default=1)
     parser.add_argument('--apply', action='store_true', help='Execute eligible plans (dry-run by default)')
-    parser.add_argument('--action-type', choices=['all', 'review', 'stop-ec2', 'tag-volume'], default='all')
+    parser.add_argument('--action-type', choices=['all', 'review', 'stop-ec2', 'tag-volume', 'contain-lambda'], default='all')
     parser.add_argument('--threshold-cpu', type=float, default=2.0)
     parser.add_argument('--json', action='store_true', help='Output raw JSON only')
     args = parser.parse_args(argv)

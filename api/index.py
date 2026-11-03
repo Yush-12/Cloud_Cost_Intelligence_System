@@ -10,11 +10,10 @@ from costintel.web import create_app
 from costintel.store import SnapshotStore
 from costintel.inventory import collect_demo
 
-# Loopback snapshot store in Vercel /tmp directory
+# The public deployment is a credential-free demo.
 db_path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "inventory.sqlite3")
 store = SnapshotStore(db_path)
 if not store.latest("local", "demo", "demo-account", "ap-south-1"):
     store.save("local", collect_demo("ap-south-1"))
 
-# Vercel looks for the WSGI application object named 'app'
 app = create_app(store, "local", "demo", "demo-account", "ap-south-1", deployment="demo")

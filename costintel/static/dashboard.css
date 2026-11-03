@@ -1341,3 +1341,9 @@ dialog p {
     grid-template-columns: 1fr;
   }
 }
+
+#reviewed-plans{margin-top:20px;font-size:12px;color:var(--muted)}
+.reviewed-plan{padding:18px 0;border-top:1px solid var(--line);margin-top:16px}
+.reviewed-plan h3{color:var(--text);font-size:15px;text-transform:capitalize}
+.reviewed-plan pre{font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0}
+.reviewed-plan p{margin-top:12px}

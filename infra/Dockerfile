@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy entire repository
 COPY . .
 
-# Expose web dashboard ports (5002 for costintel, 5000 for simulation)
+# Expose the offline demo port
 EXPOSE 5002
 
 # Default entry point runs the demo costintel dashboard in demo mode

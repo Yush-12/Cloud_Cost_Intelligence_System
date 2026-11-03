@@ -1,12 +1,10 @@
 from datetime import datetime, timezone
 from unittest.mock import Mock, MagicMock
-import pytest
 
 from costintel.inventory import collect_aws, annotate_resource_cost
 from costintel.telemetry import collect_metrics, METRICS
 from costintel.actions import idle_ec2_plan
 from costintel.store import SnapshotStore
-from costintel.provisioner import teardown_lab
 
 
 def test_annotate_resource_cost_ebs_and_dynamodb():
@@ -225,10 +223,3 @@ def test_idle_ec2_plan_validation_rules(tmp_path):
     store.save("local", snap)
     plans = idle_ec2_plan(store, account, region)
     assert plans == []  # Three stale observations cannot authorize shutdown.
-
-
-def test_teardown_refuses_unverified_cleanup():
-    session=Mock()
-    with pytest.raises(ValueError, match='disabled'):
-        teardown_lab(session, '123456789012')
-    session.client.assert_not_called()

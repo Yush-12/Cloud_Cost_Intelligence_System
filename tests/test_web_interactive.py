@@ -41,6 +41,26 @@ def test_session_isolation(app):
     assert a.get('/api/inventory').json['mode']=='aws'
     assert post(b,'/api/profiles/switch',{'profile':'costintel'}).status_code==409
 
+
+def test_temporary_credentials_verify_identity_with_regional_sts(app):
+    from unittest.mock import Mock
+    client=app.test_client()
+    sdk=Mock()
+    sdk.client.return_value.get_caller_identity.return_value={
+        'Account':'123456789012','Arn':'arn:aws:iam::123456789012:user/test'}
+    with patch('costintel.web.boto3.Session',return_value=sdk), patch('costintel.web.collect_aws',side_effect=RuntimeError('offline')):
+        response=post(client,'/api/auth/login',{'region':'ap-south-1','access_key_id':'ASIATEST',
+            'secret_access_key':'example-secret','session_token':'example-token'})
+    assert response.status_code==200
+    assert sdk.client.call_args.kwargs['endpoint_url']=='https://sts.ap-south-1.amazonaws.com'
+
+
+def test_local_website_rejects_profile_login(app):
+    client=app.test_client()
+    with patch('costintel.web.boto3.Session') as sdk:
+        assert post(client,'/api/auth/login',{'profile':'costintel','region':'ap-south-1'}).status_code==400
+        sdk.assert_not_called()
+
 def test_preview_uses_connected_sdk(app):
     client=app.test_client();sdk=connect(client)
     report={'inventory':{'resources_count':0,'services':[]},'telemetry':{'series_collected':0,'api_calls':0},'detection':{'total_analyzed':0,'outliers_count':0,'outliers':[],'insufficient_variation_count':0,'insufficient_data_count':0},'execution':{'mode':'dry_run','results':[]},'plans_generated':[],'mode':'aws','account':'123456789012','region':'ap-south-1','snapshot_id':1,'timestamp':'now'}
@@ -87,5 +107,6 @@ def test_login_page_contains_current_controls(app):
     page=app.test_client().get('/login')
     assert page.status_code==200
     assert b'Explore the offline demo' in page.data
-    assert b'Your AWS CLI profile' in page.data
+    assert b'temporary AWS credentials' in page.data
+    assert b'Your AWS CLI profile' not in page.data
     assert b'csrf-token' in page.data

@@ -5,6 +5,7 @@ import json
 import secrets
 import uuid
 import time
+from threading import RLock
 
 import boto3
 from botocore.config import Config
@@ -13,7 +14,6 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 
 from costintel.detection import analyze
 from costintel.inventory import collect_aws, collect_demo
-from costintel.provisioner import provision_lab, teardown_lab
 
 
 def calculate_est_savings(store, owner, mode, account, region):
@@ -31,6 +31,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
 
     # In-memory ephemeral session credentials (RAM only, never saved to disk or DB)
     active_sessions = {}
+    execution_lock = RLock()
 
     app.extensions['workspace_sessions'] = active_sessions
 
@@ -122,18 +123,19 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
         secret_key = req.get("secret_access_key", "").strip()
         token = (req.get("session_token") or "").strip() or None
         reg = req.get("region", "ap-south-1").strip()
-        prof = req.get("profile", "").strip()
         req_mode = req.get("mode", "").strip()
 
-        if deployment != 'local' and req_mode != 'demo' and prof != 'demo':
+        if deployment != 'local' and req_mode != 'demo':
             return jsonify(error='AWS connections require a local workspace'), 403
-        if req_mode != 'demo' and prof != 'demo' and not prof and not token:
+        if 'profile' in req:
+            return jsonify(error='Website connections require temporary credentials; use the CLI for profiles'), 400
+        if req_mode != 'demo' and not token:
             return jsonify(error='Temporary credentials require a session token'), 400
         active_sessions.pop(session.get('session_id'), None)
         sid = str(uuid.uuid4())
 
         # 1. Offline Demo Mode
-        if req_mode == "demo" or prof == "demo":
+        if req_mode == "demo":
             active_sessions[sid] = {
                 "expires": time.monotonic() + app.config["SESSION_TTL_SECONDS"],
                 "owner": owner,
@@ -154,45 +156,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
                 "mode": "demo",
             })
 
-        # 2. Local Testing Profile Preset
-        if prof and not access_key:
-            try:
-                cfg = Config(connect_timeout=5, read_timeout=10, retries={"total_max_attempts": 1})
-                test_sess = boto3.Session(profile_name=prof, region_name=reg)
-                ident = test_sess.client("sts", region_name=reg, config=cfg).get_caller_identity()
-                if ident.get("Arn", "").endswith(":root"):
-                    return jsonify({"error": "Root credentials are not supported. Use a dedicated IAM user/role."}), 400
-
-                active_sessions[sid] = {
-                    "expires": time.monotonic() + app.config["SESSION_TTL_SECONDS"],
-                "owner": owner,
-                    "mode": "aws",
-                    "profile": prof,
-                    "sdk": test_sess,
-                    "account_id": ident["Account"],
-                    "region": reg,
-                }
-                session["session_id"] = sid
-                session["logged_out"] = False
-
-                # Auto-collect current inventory
-                try:
-                    data = collect_aws(reg, session=test_sess, expected_account=ident["Account"], with_metrics=False)
-                    store.save(owner, data)
-                except Exception:
-                    pass
-
-                return jsonify({
-                    "status": "ok",
-                    "message": f"Connected to AWS profile '{prof}'",
-                    "account_id": ident["Account"],
-                    "arn": ident["Arn"],
-                    "mode": "aws",
-                })
-            except Exception as exc:
-                return jsonify({"error": f"Failed to authenticate with profile '{prof}': {str(exc)}"}), 400
-
-        # 3. Direct IAM Credentials (Ephemeral In-Memory Only)
+        # 2. Direct temporary credentials (Ephemeral In-Memory Only)
         if not access_key or not secret_key:
             return jsonify({"error": "AWS Access Key ID and Secret Access Key are required"}), 400
 
@@ -204,7 +168,7 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
                 aws_session_token=token,
                 region_name=reg,
             )
-            ident = ephemeral_sess.client("sts", region_name=reg, config=cfg).get_caller_identity()
+            ident = ephemeral_sess.client("sts", region_name=reg, endpoint_url=f"https://sts.{reg}.amazonaws.com", config=cfg).get_caller_identity()
             if ident.get("Arn", "").endswith(":root"):
                 return jsonify({"error": "Root credentials are not supported. Use a dedicated IAM user/role."}), 400
 
@@ -401,90 +365,58 @@ def create_app(store, owner, mode, account, region, *, deployment="local"):
     @app.post("/api/pipeline/run")
     def run_live_pipeline():
         scope = get_scope()
-        req = request.get_json(silent=True) or {}
+        req = request.get_json()
         if type(req.get('apply', False)) is not bool:
             return jsonify(error='apply must be a boolean'), 400
         if req.get('apply'):
-            return jsonify(error='Browser runs are preview-only. Apply reviewed plans with the local CLI.'), 409
-        if any(k in req for k in ('profile','region','account')):
+            return jsonify(error='Collect and review first, then execute one returned plan'), 409
+        if any(k in req for k in ('profile', 'region', 'account')):
             return jsonify(error='Reconnect to change workspace identity'), 400
-        if type(req.get('window_hours', 1)) is not int or not 1 <= req.get('window_hours', 1) <= 48:
+        hours = req.get('window_hours', 48)
+        if type(hours) is not int or not 1 <= hours <= 48:
             return jsonify(error='window_hours must be an integer from 1 to 48'), 400
         if req.get('stimulate', 'none') != 'none':
             return jsonify(error='Use the bounded lab CLI for workload experiments'), 409
-        apply_changes = False
-        stimulate = req.get("stimulate", "none")
-        stim_count = int(req.get("stimulate_count", 5))
-        stim_count = max(1, min(20, stim_count))
-        cur_mode = scope["mode"]
-        acc = scope["account_id"]
-        reg = req.get("region") or scope["region"]
-        prof = req.get("profile") or scope.get("profile")
-
-        logs = []
-        stimulation_res = None
-
-        # 1. Workload stimulation
-        if stimulate in ("slow", "baseline"):
-            logs.append(f"[WORKLOAD STIMULATION] Invoking costintel-lab-workload ({stim_count}x, scenario='{stimulate}')...")
-            if cur_mode == "aws":
-                try:
-                    from scripts.run_lambda_lab import run as run_lab
-                    sess = get_boto3_session()
-                    res = run_lab(sess, acc, count=stim_count, scenario=stimulate)
-                    stimulation_res = res
-                    logs.append(f"[WORKLOAD SUCCESS] Executed {res['invocations']} invocations on {res['function_name']} (Errors: {res['function_errors']})")
-                except Exception as exc:
-                    logs.append(f"[WORKLOAD WARNING] Lab invocation: {str(exc)}")
-            else:
-                stimulation_res = {
-                    "scenario": stimulate,
-                    "invocations": stim_count,
-                    "simulated": True,
-                    "function_name": "demo-lambda-workload",
-                }
-                logs.append(f"[WORKLOAD SIMULATED] Generated {stim_count} simulated {stimulate} executions.")
-
-        # 2. End-to-end pipeline run
         from costintel.pipeline import run_pipeline, format_summary
-        try:
-            logs.append(f"[PIPELINE START] Ingesting multi-service telemetry & running Isolation Forest (mode={cur_mode}, apply={apply_changes})...")
-            pipe_prof = prof
-            if cur_mode == "aws" and apply_changes and not pipe_prof:
-                pipe_prof = "costintel-deploy"
+        with execution_lock:
+            scope.pop('preview', None)
+            try:
+                report = run_pipeline(store=store, mode=scope['mode'], account=scope['account_id'],
+                    region=scope['region'], session=get_boto3_session() if scope['mode']=='aws' else None,
+                    owner=scope['owner'], expected_account=scope['account_id'], with_metrics=scope['mode']=='aws',
+                    max_resources=10, window_hours=hours, apply=False)
+                preview_token = secrets.token_urlsafe(32)
+                scope['preview'] = {'token':preview_token, 'expires':time.monotonic()+300,
+                                    'plans':{p['id']:p for p in report['plans_generated']}}
+                return jsonify(status='success', report=report, summary=format_summary(report),
+                               preview_token=preview_token, expires_in=300)
+            except Exception:
+                return jsonify(error='Collection failed. The previous saved snapshot is preserved if collection did not finish. Check AWS login and permissions.'),502
 
-            report = run_pipeline(
-                store=store,
-                mode=cur_mode,
-                account=acc,
-                region=reg,
-                profile=pipe_prof,
-                session=get_boto3_session() if cur_mode == "aws" else None,
-                owner=scope["owner"],
-                expected_account=acc,
-                with_metrics=(cur_mode == "aws"),
-                max_resources=10,
-                window_hours=int(req.get("window_hours", 1)),
-                apply=apply_changes,
-                action_type="all",
-            )
-            summary = format_summary(report)
-            logs.append("[PIPELINE COMPLETE] Inventory updated, ML analysis scored, actions recorded.")
-            return jsonify({
-                "status": "success",
-                "report": report,
-                "summary": summary,
-                "stimulation": stimulation_res,
-                "logs": logs,
-                "est_monthly_savings": calculate_est_savings(store, scope["owner"], cur_mode, acc, reg),
-            })
-        except Exception as exc:
-            logs.append(f"[PIPELINE ERROR] {str(exc)}")
-            return jsonify({
-                "status": "error",
-                "error": str(exc),
-                "logs": logs,
-            }), 500
+    @app.post('/api/plans/execute')
+    def execute_plan():
+        from costintel.actions import apply_optimization_plan
+        scope = get_scope()
+        req = request.get_json()
+        if deployment != 'local' or scope['mode'] != 'aws' or scope['owner'] != 'local':
+            return jsonify(error='Execution requires an authenticated local AWS workspace'),403
+        if set(req) != {'preview_token','plan_id'} or not all(isinstance(v,str) for v in req.values()):
+            return jsonify(error='Only the preview token and selected plan ID are accepted'),400
+        with execution_lock:
+            preview = scope.get('preview')
+            if not preview or preview['expires'] < time.monotonic() or not secrets.compare_digest(preview['token'],req['preview_token']):
+                return jsonify(error='Preview expired or unavailable. Collect and review again.'),409
+            plan = preview['plans'].pop(req['plan_id'], None)
+            if not plan:
+                return jsonify(error='Plan unavailable or already submitted. Check the action history.'),409
+            if plan['account'] != scope['account_id'] or plan['region'] != scope['region']:
+                return jsonify(error='Plan does not belong to this workspace'),403
+            try:
+                result = apply_optimization_plan(store,get_boto3_session(),plan)
+                return jsonify(result=result, action=plan['action'], resource=plan['resource'])
+            except Exception:
+                # Consume the selection even on failure; an uncertain API result must never replay automatically.
+                return jsonify(error='Execution was not verified. Inspect the action history and AWS state before collecting a new plan.'),502
 
     @app.post('/api/workload/stimulate')
     def direct_stimulate():

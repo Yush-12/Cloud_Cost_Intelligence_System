@@ -4,9 +4,9 @@
 
 1. Install requirements in a Python 3.12 virtual environment.
 2. Run `python -m costintel serve --mode demo --port 5002`.
-3. Open the local URL and choose the offline demo or connect your own existing AWS CLI profile. Temporary credential entry requires a session token. Never use root.
+3. Open the local URL and choose the offline demo or connect your AWS account with temporary credentials, including a session token. Never use root.
 4. Collect and preview. Check account, region, snapshot time, missing metrics and inventory warnings before interpreting results.
-5. Browser collection does not apply plans. Use `python -m costintel.pipeline --help` for explicit CLI execution after reviewing the plan and IAM scope.
+5. Collection does not apply plans. Review an eligible plan, then use **Execute this plan** with a scoped mutation identity. Previews expire in five minutes. Refresh to inspect the action and restore its prior state. See [the local workflow](docs/LOCAL_WORKFLOW.md) for the complete sequence and CLI alternative.
 
 A browser session expires after one hour or server restart. Disconnect removes it from the application registry. CLI credential caches are managed outside the application. The local server is for a trusted single-user machine, not shared hosting.
 
@@ -22,7 +22,7 @@ The separate `scripts.verify_containment` workflow is for an explicitly reviewed
 
 ## Infrastructure
 
-Browser provision/teardown endpoints are disabled. `costintel.provisioner` is not a supported deployment path. Use the scoped Terraform lab under `infra/lambda-lab`, inspect the plan, verify account/region and review allowances before any apply. Terraform destroy needs its state file and a reviewed removal plan. Stopping compute alone is not complete cleanup.
+Browser provision/teardown endpoints are disabled. Use the scoped Terraform lab under `infra/lambda-lab`, inspect the plan, verify account/region and review allowances before any apply. Terraform destroy needs its state file and a reviewed removal plan. Stopping compute alone is not complete cleanup.
 
 ## Public demo
 

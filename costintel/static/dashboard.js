@@ -241,6 +241,45 @@ function toggleSidebar() {
 if (sidebarToggleBtn) sidebarToggleBtn.addEventListener('click', toggleSidebar);
 if (sidebarCollapseBtn) sidebarCollapseBtn.addEventListener('click', toggleSidebar);
 
+// Keep navigation in sync with the section beneath the fixed top bar.
+const sectionLinks = [...document.querySelectorAll('.sidebar nav a[href^="#"]')];
+const trackedSections = sectionLinks.map(link => ({link, section: document.getElementById(link.hash.slice(1))})).filter(item => item.section);
+const breadcrumbSection = document.querySelector('.breadcrumb strong');
+let sectionScrollPending = false;
+function updateActiveSection() {
+  sectionScrollPending = false;
+  if (!trackedSections.length) return;
+  const topBar = document.querySelector('.topbar');
+  const threshold = (topBar?.getBoundingClientRect().bottom || 0) + 32;
+  let current = trackedSections[0];
+  for (const item of trackedSections) {
+    if (item.section.getBoundingClientRect().top <= threshold) current = item;
+  }
+  for (const item of trackedSections) {
+    const active = item === current;
+    item.link.classList.toggle('active', active);
+    if (active) item.link.setAttribute('aria-current', 'location');
+    else item.link.removeAttribute('aria-current');
+  }
+  if (breadcrumbSection) breadcrumbSection.textContent = current.link.textContent.replace(/\d+\s*$/, '').trim();
+}
+function scheduleActiveSection() {
+  if (sectionScrollPending) return;
+  sectionScrollPending = true;
+  requestAnimationFrame(updateActiveSection);
+}
+sectionLinks.forEach(link => link.addEventListener('click', () => {
+  sectionLinks.forEach(other => { other.classList.remove('active'); other.removeAttribute('aria-current'); });
+  link.classList.add('active');
+  link.setAttribute('aria-current', 'location');
+  if (breadcrumbSection) breadcrumbSection.textContent = link.textContent.replace(/\d+\s*$/, '').trim();
+  setTimeout(scheduleActiveSection, 350);
+}));
+window.addEventListener('scroll', scheduleActiveSection, {passive:true});
+window.addEventListener('resize', scheduleActiveSection);
+window.addEventListener('hashchange', () => setTimeout(scheduleActiveSection, 350));
+scheduleActiveSection();
+
 // Global Keyboard Shortcuts (Ctrl+B, Ctrl+K)
 window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
@@ -320,6 +359,7 @@ const opResults = document.querySelector('#operation-results');
 function openOperationDialog() {
   if (!dialog) return;
   if (opResults) opResults.replaceChildren();
+  document.querySelector('#reviewed-plans')?.replaceChildren();
   if (reloadViewBtn) reloadViewBtn.hidden = true;
   if (execOpBtn) {
     execOpBtn.disabled = false;
@@ -375,6 +415,7 @@ if (execOpBtn) {
       showToast('Pipeline Cycle Complete', 'Collection complete. Review the generated plans; no AWS changes were applied.', 'success', 4500);
       if (reloadViewBtn) reloadViewBtn.hidden = false;
       execOpBtn.textContent = 'Cycle Finished';
+      renderPlans(data);
 
 
     } catch (err) {
@@ -432,3 +473,39 @@ logoutBtns.forEach(btn => {
     window.location.href = '/login';
   });
 });
+
+
+// The browser submits IDs only. Plan details and AWS identity stay on the server.
+function renderPlans(data) {
+  const root = document.querySelector('#reviewed-plans');
+  if (!root) return;
+  root.replaceChildren();
+  const plans = data.report?.plans_generated || [];
+  if (!plans.length) {
+    root.append(Object.assign(document.createElement('p'), {textContent:'No eligible plans. Stale or missing observations cannot authorize a change.'}));
+    return;
+  }
+  root.append(Object.assign(document.createElement('p'), {textContent:'Review each action before execution. This preview expires in five minutes; the connected AWS identity must have the required permissions and resource opt-in tags.'}));
+  for (const plan of plans) {
+    const card = document.createElement('article'); card.className='reviewed-plan';
+    const title = document.createElement('h3'); title.textContent=plan.action.replaceAll('_',' ');
+    const details = document.createElement('pre');
+    details.textContent=JSON.stringify({account:plan.account,region:plan.region,resource:plan.resource,
+      reason:plan.reason,effect:plan.effect || (plan.action==='stop_idle_instance'?'Stops this instance. Restart is available from action history.':'Adds a review tag. No measured savings.'),
+      required_tags:plan.required_tags,evidence:plan.evidence},null,2);
+    const button = document.createElement('button'); button.className='button secondary';button.textContent='Execute this plan';
+    const status = document.createElement('p');status.setAttribute('role','status');
+    button.addEventListener('click', async () => {
+      if (!confirm('Execute '+plan.action+' on '+plan.resource+' in account '+plan.account+'? This changes a real AWS resource.')) return;
+      button.disabled=true;status.textContent='Executing and verifying... Do not resubmit.';
+      try {
+        const response=await fetch('/api/plans/execute',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content},body:JSON.stringify({preview_token:data.preview_token,plan_id:plan.id})});
+        const result=await response.json();
+        if(!response.ok) throw new Error(result.error || 'Result not verified');
+        status.textContent='Recorded status: '+result.result.status+'. Action ID: '+result.result.id+'. Refresh the dashboard to inspect the audit or restore.';
+      } catch(error) { status.textContent=error.message+' This selection will not be retried automatically.'; }
+      if(reloadViewBtn) reloadViewBtn.hidden=false;
+    });
+    card.append(title,details,button,status);root.append(card);
+  }
+}

@@ -17,7 +17,7 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
                 with_metrics=False, max_resources=10, window_hours=1):
     session = session or boto3.Session(profile_name=profile, region_name=region)
     config = Config(connect_timeout=5, read_timeout=15, retries={"max_attempts": 2})
-    identity = session.client("sts", region_name=region, config=config).get_caller_identity()
+    identity = session.client("sts", region_name=region, endpoint_url=f"https://sts.{region}.amazonaws.com", config=config).get_caller_identity()
     if identity.get("Arn", "").endswith(":root"):
         raise ValueError("Root credentials are not supported; use a dedicated read-only identity")
     account = identity["Account"]

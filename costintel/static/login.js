@@ -3,27 +3,37 @@
   const demo = document.querySelector('#demo-connect');
   const status = document.querySelector('#connection-status');
   const error = document.querySelector('#connection-error');
-  const methods = [...document.querySelectorAll('input[name="method"]')];
-  const profile = document.querySelector('#local-profile');
   const credentials = [...document.querySelectorAll('#credential-fields input')];
   let busy = false;
-  function setMethod() {
-    const temporary = methods.find(input => input.checked)?.value === 'credentials';
-    document.querySelector('#profile-fields').hidden = temporary;
-    document.querySelector('#credential-fields').hidden = !temporary;
-    profile.disabled = temporary;
-    profile.required = !temporary;
-    credentials.forEach(input => { input.disabled = !temporary; input.required = temporary; });
-    error.hidden = true;
-  }
-  methods.forEach(input => input.addEventListener('change', setMethod));
-  if (form) setMethod();
+  document.querySelectorAll('.connection-details').forEach(details => {
+    const summary = details.querySelector('summary');
+    const body = details.querySelector('.details-body');
+    if (!summary || !body) return;
+    let animation;
+    summary.addEventListener('click', event => {
+      event.preventDefault();
+      animation?.cancel();
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (details.open && !details.classList.contains('is-closing')) {
+        details.classList.add('is-closing');
+        if (reducedMotion) { details.open = false; details.classList.remove('is-closing'); return; }
+        animation = body.animate([{height: `${body.scrollHeight}px`, opacity: 1}, {height: '0px', opacity: 0}], {duration: 280, easing: 'ease-in-out'});
+        animation.onfinish = () => { details.open = false; details.classList.remove('is-closing'); animation = null; };
+      } else {
+        details.open = true;
+        details.classList.remove('is-closing');
+        if (reducedMotion) return;
+        animation = body.animate([{height: '0px', opacity: 0}, {height: `${body.scrollHeight}px`, opacity: 1}], {duration: 320, easing: 'cubic-bezier(.22,1,.36,1)'});
+        animation.onfinish = () => { animation = null; };
+      }
+    });
+  });
   document.querySelectorAll('[data-reveal]').forEach(button => button.addEventListener('click', () => {
     const input = document.getElementById(button.dataset.reveal);
     const show = input.type === 'password';
     input.type = show ? 'text' : 'password';
-    button.textContent = show ? 'Hide' : 'Show';
     button.setAttribute('aria-pressed', String(show));
+    button.title = `${show ? 'Hide' : 'Show'} ${input.id === 'aws-secret-key' ? 'secret access key' : 'session token'}`;
     button.setAttribute('aria-label', `${show ? 'Hide' : 'Show'} ${input.id === 'aws-secret-key' ? 'secret access key' : 'session token'}`);
   }));
   async function connect(payload, trigger) {
@@ -67,14 +77,9 @@
     event.preventDefault();
     const values = new FormData(form);
     const payload = {mode:'aws', region:values.get('region')};
-    if (!profile.disabled) {
-      payload.profile = profile.value.trim();
-      if (!payload.profile) { profile.setCustomValidity('Enter your configured AWS CLI profile name.'); profile.reportValidity(); return; }
-    } else {
-      for (const key of ['access_key_id','secret_access_key','session_token']) payload[key] = String(values.get(key) || '').trim();
-      const empty = credentials.find(input => !input.value.trim());
-      if (empty) { empty.setCustomValidity('This field cannot contain only spaces.'); empty.reportValidity(); return; }
-    }
+    for (const key of ['access_key_id','secret_access_key','session_token']) payload[key] = String(values.get(key) || '').trim();
+    const empty = credentials.find(input => !input.value.trim());
+    if (empty) { empty.setCustomValidity('This field cannot contain only spaces.'); empty.reportValidity(); return; }
     connect(payload, document.querySelector('#connect-submit'));
   });
   form?.querySelectorAll('input').forEach(input => input.addEventListener('input', () => input.setCustomValidity('')));

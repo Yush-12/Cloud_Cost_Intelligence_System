@@ -1,6 +1,6 @@
 # Bounded Lambda telemetry lab
 
-Deployment candidate; not deployed. These controlled scenarios generate real
+A bounded lab that has been deployed and used for historical experiments. These controlled scenarios generate real
 CloudWatch observations, not evidence of ML accuracy or measured cost savings.
 
 ## Resources
