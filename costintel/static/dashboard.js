@@ -104,7 +104,8 @@ function render() {
   const sampTime = document.querySelector('#sample-time');
 
   if (evHeading) evHeading.textContent = labels[item.status] || item.status;
-  if (evDesc) evDesc.textContent = descriptions[item.status] || '';
+  if (evDesc) evDesc.textContent = latest ? (descriptions[item.status] || '')
+    : 'CloudWatch returned no datapoints for this metric. Some metrics publish only after resource activity; missing data is not zero usage.';
   if (baseCount) baseCount.textContent = (item.baseline_points || 0) + ' / ' + (item.required_baseline_points || 6) + ' points';
   if (decScore) decScore.textContent = item.score === null ? 'Not evaluated' : item.score.toFixed(4);
   if (sampTime) sampTime.textContent = item.sample_timestamp ? dateLabel(item.sample_timestamp) : 'No sample';
@@ -125,7 +126,7 @@ function render() {
   }
 
   if (!pts.length) {
-    svg.append(node('text', { x: width / 2, y: 125, 'text-anchor': 'middle', class: 'chart-label' }, 'No observations in this window'));
+    svg.append(node('text', { x: width / 2, y: 125, 'text-anchor': 'middle', class: 'chart-label' }, 'No CloudWatch datapoints in this window'));
     const cap = document.querySelector('#chart-caption');
     if (cap) cap.textContent = 'Missing observations are not treated as zero usage.';
     return;

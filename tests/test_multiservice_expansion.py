@@ -1,10 +1,32 @@
 from datetime import datetime, timezone
 from unittest.mock import Mock, MagicMock
+from botocore.exceptions import ClientError
 
 from costintel.inventory import collect_aws, annotate_resource_cost
 from costintel.telemetry import collect_metrics, METRICS
 from costintel.actions import idle_ec2_plan
 from costintel.store import SnapshotStore
+
+
+def test_inventory_warning_reports_aws_error_code_without_leaking_message():
+    session = Mock()
+    clients = {name: Mock() for name in ('sts', 'ec2', 'lambda', 's3', 'dynamodb')}
+    session.client.side_effect = lambda name, **kwargs: clients[name]
+    clients['sts'].get_caller_identity.return_value = {
+        'Account': '123456789012', 'Arn': 'arn:aws:iam::123456789012:user/reader'}
+    clients['ec2'].get_paginator.side_effect = lambda name: (
+        Mock(paginate=Mock(return_value=[{'Reservations': []}])) if name == 'describe_instances'
+        else Mock(paginate=Mock(side_effect=ClientError(
+            {'Error': {'Code': 'AccessDenied', 'Message': 'private diagnostic'}}, 'DescribeVolumes'))))
+    clients['lambda'].get_paginator.return_value.paginate.return_value = [{'Functions': []}]
+    clients['s3'].can_paginate.return_value = False
+    clients['s3'].list_buckets.return_value = {'Buckets': []}
+    clients['dynamodb'].get_paginator.return_value.paginate.return_value = [{'TableNames': []}]
+
+    data = collect_aws('ap-south-1', session=session)
+    assert data['warnings'] == [{'service': 'ebs', 'code': 'AccessDenied',
+                                 'message': 'Inventory incomplete; check read permissions and availability.'}]
+    assert 'private diagnostic' not in str(data)
 
 
 def test_annotate_resource_cost_ebs_and_dynamodb():

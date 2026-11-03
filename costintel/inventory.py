@@ -23,8 +23,11 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
     resources = []
     warnings = []
     coverage = ['ec2','lambda']
-    def warn(service):
-        warnings.append({'service':service,'message':'Inventory incomplete; check read permissions and availability.'})
+    def warn(service, exc):
+        code = (exc.response.get('Error', {}).get('Code', 'AWS error')
+                if isinstance(exc, ClientError) else type(exc).__name__)
+        warnings.append({'service':service,'code':code,
+                         'message':'Inventory incomplete; check read permissions and availability.'})
     # Core compute inventory
     ec2 = session.client("ec2", region_name=region, config=config)
     for page in ec2.get_paginator("describe_instances").paginate():
@@ -52,8 +55,8 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
                     "size_gb": volume.get("Size", 8),
                 })
         coverage.append('ebs')
-    except Exception:
-        warn('ebs')
+    except Exception as exc:
+        warn('ebs', exc)
 
     # Optional/safe read: Storage buckets (S3)
     try:
@@ -67,11 +70,11 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
                         loc = "eu-west-1"
                     if loc == region:
                         resources.append({"resource_id": bucket["Name"], "service": "s3", "state": "available"})
-                except Exception:
-                    warn("s3")
+                except Exception as exc:
+                    warn("s3", exc)
         coverage.append("s3")
-    except Exception:
-        warn("s3")
+    except Exception as exc:
+        warn("s3", exc)
 
     # Optional/safe read: Free-tier database (DynamoDB)
     try:
@@ -86,11 +89,11 @@ def collect_aws(region, profile=None, expected_account=None, session=None,
                         "state": desc.get("TableStatus", "ACTIVE"),
                         "billing_mode": desc.get("BillingModeSummary", {}).get("BillingMode", "PAY_PER_REQUEST"),
                     })
-                except Exception:
-                    warn("dynamodb")
+                except Exception as exc:
+                    warn("dynamodb", exc)
         coverage.append("dynamodb")
-    except Exception:
-        warn("dynamodb")
+    except Exception as exc:
+        warn("dynamodb", exc)
 
     data = snapshot("aws", account, region, resources)
     data.update(coverage=coverage, warnings=warnings)

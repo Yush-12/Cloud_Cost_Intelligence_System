@@ -288,7 +288,11 @@
           <div class="empty-state panel">
             {{ icon('pulse') }}
             <h3>A clearer picture starts with data.</h3>
-            <p>Collect CloudWatch metrics to build a history. Missing observations are never treated as zero.</p>
+            {% if snap and snap.telemetry is defined and snap.telemetry.collected_resources == 0 %}
+              <p>No EC2, Lambda, S3, or DynamoDB resources were eligible for metric collection in this region. Check the inventory and read permissions, then collect again.</p>
+            {% else %}
+              <p>Collect CloudWatch metrics to build a history. Missing observations are never treated as zero.</p>
+            {% endif %}
             <button class="button secondary" data-collect>{{ 'Collect & analyze' if hosted else 'Collect & preview' }} {{ icon('arrow') }}</button>
           </div>
         {% endif %}
